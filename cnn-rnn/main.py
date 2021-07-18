@@ -45,10 +45,11 @@ parser.add_argument('-clip_grad', "--clip_grad", default=10.0, type=float, help=
 # Added: dataset params
 # parser.add_argument('-data_dir', "--data_dir", type=str, default="/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly_1981-2020.csv")
 # parser.add_argument('-data_file', "--data_file", type=str, default="combined_dataset_weekly_1981-2020.csv")
-parser.add_argument('-num_outputs', "--num_outputs", default=6, type=int)
+# parser.add_argument('-num_outputs', "--num_outputs", default=6, type=int)
+parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
 parser.add_argument('-num_weather_vars', "--num_weather_vars", default=23, type=int, help='Number of daily weather vars, from PRISM and NLDAS. There were 6 in the CNN-RNN paper, 23 in our new dataset.')
+parser.add_argument('-num_management_vars', "--num_management_vars", default=96, type=int, help='Number of management (crop progress) variables. There were 14 in the CNN-RNN paper, ??? in our new dataset.')
 parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, help='Number of depth-dependent soil vars, from gSSURGO. There were 10 in the CNN-RNN paper, 20 in our new dataset.')
-parser.add_argument('-num_management_vars', "--num_management_vars", default=14, type=int, help='Number of management (crop progress) variables. There were 14 in the CNN-RNN paper, ??? in our new dataset.')
 parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
 
@@ -61,7 +62,7 @@ args = parser.parse_args()
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
 if "daily" in args.data_dir:
     args.time_intervals = 365
-elif "weekly" in args.data_dir or args.data_dir.endswith(".npy") or args.data_dir.endswith(".npz"):  # A bit of a hack to accomodate the CNN-RNN dataset, which is weekly
+elif "weekly" in args.data_dir or args.data_dir.endswith(".npy") or args.data_dir.endswith(".npz"):  # A bit of a hack to accomodate the previous paper's CNN-RNN dataset, which is weekly
     args.time_intervals = 52
 else:
     raise ValueError("Data file must contain the string 'daily' or 'weekly'")

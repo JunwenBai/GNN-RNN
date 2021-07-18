@@ -15,25 +15,57 @@ def build_path(path):
             os.mkdir(cur_path)
 
 def get_X_Y(data, args):
-    # TODO Delete this!!!!
     if args.data_dir.endswith(".npz"):
+        # Old dataset (given from CNN-RNN paper)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
         Y = data[:, 2:3]
         X = data[:, 3:]
     else:
+        # Our dataset
+        print("Initially data", data.shape)
+        counties_all = data[:, 0].astype(int)
         years_all = data[:, 1].astype(int)
-        X_all = data[:, 8:]  # 2+args.num_outputs:]
-        data = data[(years_all <= 2017) & (~np.isnan(X_all).any(axis=1))]
+        # X_all = data[:, 8:]
+        data = data[(years_all <= 2017) & (counties_all != 25019)]  # & (~np.isnan(X_all).any(axis=1))]
+        print("After filtering", data.shape)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
-        Y = data[:, 2:8]  #2:2+args.num_outputs]
-        X = data[:, 8:]  # 2+args.num_outputs:]
+        Y = data[:, [args.output_idx]]
+        X = data[:, 8:]
 
     print("Get X Y")
     print("X shape", X.shape)
     print("Y shape", Y.shape)
-    print("Years", data[:, 1])
+
+    X = np.nan_to_num(X)
+    min_year = int(min(years))
+    max_year = int(max(years))
+    county_set = sorted(list(set(counties)))
+
+    # # TODO Impute missing X values. First compute the mean feature vector for every county; if no data exists for that county, replace it with mean feature for the year (across all counties)
+    # county_avgs = dict()
+    # for county in county_set:
+    #     county_avgs[county] = np.nanmean(X[counties == county, :], axis=0)
+    # year_avgs = dict()
+    # for year in range(min_year, max_year+1):
+    #     year_avgs[year] = np.nanmean(X[years == year, :], axis=0)
+
+    # nan_entry_indices = np.argwhere(np.isnan(X))
+    # for nan_entry in nan_entry_indices:
+    #     print("Nan entry", nan_entry)
+    #     row = nan_entry[0]
+    #     col = nan_entry[1]
+    #     county = counties[row]
+    #     year = years[row]
+    #     if not np.isnan(county_avgs[county][col]):
+    #         print("Substituting with county avg", county_avgs[county][col])
+    #         X[row, col] = county_avgs[county][col]
+    #     elif not np.isnan(year_avgs[year][col]):
+    #         print("No values for feature", col, "in county", county, "in any year. Replacing with this year's avg across ALL COUNTIES")
+    #         X[row, col] = year_avgs[year][col]
+    #     else:
+    #         X[row, col] = 0
 
     # Check for nan in X
     # print("Nan here")
@@ -50,8 +82,6 @@ def get_X_Y(data, args):
     X = (X - X_mean) / (X_std + 1e-10)
 
     # Compute average yield of each year (to detect underlying yearly trends)
-    min_year = int(min(years))
-    max_year = int(max(years))
     avg_Y = {}
     avg_Y_lst = []
     for year in range(min_year, max_year+1):
@@ -74,7 +104,6 @@ def get_X_Y(data, args):
     # Create dictionaries mapping from (county + year) to features/labels
     X_dict = {}
     Y_dict = {}
-    county_set = sorted(list(set(counties)))
     year_dict = {}
     for county in county_set:
         X_dict[county] = {}

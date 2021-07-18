@@ -25,6 +25,13 @@ METRICS = {'rmse', 'r2', 'corr'}
 huber_fn = nn.SmoothL1Loss()
 best_test = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
+yield_indices = {'corn': 2,
+                 'cotton': 3,
+                 'sorghum': 4,
+                 'soybeans': 5,
+                 'spring_wheat': 6,
+                 'winter_wheat': 7}
+
 
 # pred, Y assumed to be 2D: [examples x outputs]
 def eval(pred, Y, args):
@@ -265,17 +272,17 @@ def train(args):
 
     # TODO this changed!
     print(args.data_dir)
+    args.output_names = [args.crop_type]
+    args.output_idx = yield_indices[args.crop_type]
+
     if args.data_dir.endswith(".npz"):
         raw_data = np.load(args.data_dir) #load data from the data_dir
         data = raw_data['data']
-        args.output_names = ["soybean"]
     elif args.data_dir.endswith(".npy"):
         data = np.load(args.data_dir)  #, dtype=float, delimiter=',')
-        args.output_names = ["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"]
         print("Data shape", data.shape)    
     elif args.data_dir.endswith(".csv"):
         data = np.genfromtxt(args.data_dir, dtype=float, delimiter=',')
-        args.output_names = ["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"]
         print("Data shape", data.shape)
     else:
         raise ValueError("--data_dir argument must end in .npz, .npy, or .csv")
