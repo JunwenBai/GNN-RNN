@@ -4,6 +4,28 @@ from test import test
 from test_predictions_over_time import test_predictions_over_time
 
 
+# Index of the yield variable for each variable
+OUTPUT_INDICES = {'corn': 2,
+                  'cotton': 3,
+                  'sorghum': 4,
+                  'soybeans': 5,
+                  'spring_wheat': 6,
+                  'winter_wheat': 7}
+
+# Indices of the progress variables for each crop type in the X array.
+PROGRESS_INDICES_DAILY = {'corn': list(range(8403-8, 13148-8)),
+                          'cotton': list(range(13148-8, 17893-8)),
+                          'sorghum': list(range(17893-8, 22638-8)),
+                          'soybeans': list(range(22638-8, 28113-8)),
+                          'spring_wheat': list(range(28113-8, 37603-8)),
+                          'winter_wheat': list(range(37603-8, 43443-8))}
+PROGRESS_INDICES_WEEKLY = {'corn': list(range(1204-8, 1880-8)),
+                          'cotton': list(range(1880-8, 2556-8)),
+                          'sorghum': list(range(2556-8, 3232-8)),
+                          'soybeans': list(range(3232-8, 4012-8)),
+                          'spring_wheat': list(range(4688-8, 5364-8)),  # NOTE: only use data for spring wheat EXCLUDING DURUM
+                          'winter_wheat': list(range(5364-8, 6196-8))}
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-dataset', "--dataset", default='soybean', type=str, help='dataset name')
 parser.add_argument('-adj', "--us_adj_file", default='', type=str, help='adjacency file')
@@ -52,6 +74,7 @@ parser.add_argument('-num_management_vars', "--num_management_vars", default=96,
 parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, help='Number of depth-dependent soil vars, from gSSURGO. There were 10 in the CNN-RNN paper, 20 in our new dataset.')
 parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
+parser.add_argument('-share_conv_params', "--share_conv_parameters", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
 
 # ONLY used for test_predictions_over_time, if we're plotting predictions over time for a specific county and the test year.
 parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=int, help='County FIPS to plot (ONLY used for the "test_predictions_over_time" mode).')
@@ -60,10 +83,14 @@ parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=i
 args = parser.parse_args()
 
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
+args.output_idx = OUTPUT_INDICES[args.crop_type]
+args.output_names = [args.crop_type]
 if "daily" in args.data_dir:
     args.time_intervals = 365
+    args.progress_indices = PROGRESS_INDICES_DAILY[args.crop_type]
 elif "weekly" in args.data_dir or args.data_dir.endswith(".npy") or args.data_dir.endswith(".npz"):  # A bit of a hack to accomodate the previous paper's CNN-RNN dataset, which is weekly
     args.time_intervals = 52
+    args.progress_indices = PROGRESS_INDICES_WEEKLY[args.crop_type]
 else:
     raise ValueError("Data file must contain the string 'daily' or 'weekly'")
 

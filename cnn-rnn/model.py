@@ -8,141 +8,267 @@ class CNN_RNN(nn.Module):
     def __init__(self, args):
         super(CNN_RNN, self).__init__()
         self.z_dim = args.z_dim
+        self.share_conv_parameters = args.share_conv_parameters
 
         # Store dataset dimensions
         self.time_intervals = args.time_intervals
         self.soil_depths = args.soil_depths
-
+        self.progress_indices = args.progress_indices
+        self.num_weather_vars = args.num_weather_vars  # Number of variables in weather data (for each day)
+        self.num_soil_vars = args.num_soil_vars
+        self.num_management_vars_this_crop = int(len(args.progress_indices) / args.time_intervals)  # NOTE - only includes management vars for this specific crop
         self.n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
         self.n_s = args.soil_depths*args.num_soil_vars  # Original: 10*10, new: 6*20
-        self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96
+        self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96, This includes management vars for ALL crops.
         self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+6
-        # weather
-        if args.time_intervals == 52:
-            self.w_conv = nn.Sequential(
-                nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=1),
+
+        if args.share_conv_parameters:
+            if args.time_intervals == 52:  # weekly data
+                # weather
+                self.w_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(8, 12, 3, 1), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(12, 16, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(16, 20, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+                self.m_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(8, 12, 3, 1), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(12, 16, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(16, 20, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+            elif args.time_intervals == 365:  # daily data
+                self.w_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(8, 12, 3, 2), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(12, 16, 3, 2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(16, 20, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+                self.m_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(8, 12, 3, 2), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(12, 16, 3, 2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(16, 20, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+            else:
+                raise ValueError("Invalid value for time_intervals (should be 52 or 365)")
+
+            self.w_fc = nn.Sequential(
+                nn.Linear(args.num_weather_vars*20, 40), 
                 nn.ReLU(),
-                nn.AvgPool1d(kernel_size=2, stride=2),
-                nn.Conv1d(8, 12, 3, 1), 
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2), 
-                nn.Conv1d(12, 16, 3, 1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
-                nn.Conv1d(16, 20, 3, 1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
             )
-            self.m_conv = nn.Sequential(
-                nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=1),
+            self.m_fc = nn.Sequential(
+                nn.Linear(self.num_management_vars_this_crop * 20, 40), 
                 nn.ReLU(),
-                nn.AvgPool1d(kernel_size=2, stride=2),
-                nn.Conv1d(8, 12, 3, 1), 
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2), 
-                nn.Conv1d(12, 16, 3, 1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
-                nn.Conv1d(16, 20, 3, 1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
             )
-        elif args.time_intervals == 365:
-            self.w_conv = nn.Sequential(
-                nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=2),
+
+            if args.soil_depths == 10:
+                self.s_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=1, out_channels=4, kernel_size=3, stride=1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(4, 8, 3, 1),
+                    nn.ReLU(),
+                    nn.Conv1d(8, 12, 2, 1),
+                    nn.ReLU(),
+                )
+            elif args.soil_depths == 6:
+                self.s_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=1, out_channels=4, kernel_size=3, stride=1),
+                    nn.ReLU(),
+                    nn.Conv1d(4, 8, 3, 1),
+                    nn.ReLU(),
+                    nn.Conv1d(8, 12, 2, 1),
+                    nn.ReLU(),
+                )
+            else:
+                raise ValueError("Don't know how to deal with a number of soil_depths that is not 6 or 10")
+
+            self.s_fc = nn.Sequential(
+                nn.Linear(args.num_soil_vars*12, 40),
                 nn.ReLU(),
-                nn.AvgPool1d(kernel_size=2, stride=2),
-                nn.Conv1d(8, 12, 3, 2), 
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2), 
-                nn.Conv1d(12, 16, 3, 2),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
-                nn.Conv1d(16, 20, 3, 1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
             )
-            self.m_conv = nn.Sequential(
-                nn.Conv1d(in_channels=1, out_channels=8, kernel_size=9, stride=2),
-                nn.ReLU(),
-                nn.AvgPool1d(kernel_size=2, stride=2),
-                nn.Conv1d(8, 12, 3, 2), 
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2), 
-                nn.Conv1d(12, 16, 3, 2),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
-                nn.Conv1d(16, 20, 3, 1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
-            )
+
+            self.lstm = nn.LSTM(input_size=120+self.n_extra, hidden_size=self.z_dim, num_layers=1, batch_first=True)
+
         else:
-            raise ValueError("Invalid value for time_intervals (should be 52 or 365)")
+            print('Each variable has own conv params!')
+        
+            if args.time_intervals == 52:
+                self.w_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=self.num_weather_vars, out_channels=32, kernel_size=9, stride=1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(32, 64, 3, 1), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(64, 128, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(128, 256, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+                self.m_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=self.num_management_vars_this_crop, out_channels=32, kernel_size=9, stride=1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(32, 64, 3, 1), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(64, 128, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(128, 256, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+            elif args.time_intervals == 365:
+                self.w_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=self.num_weather_vars, out_channels=32, kernel_size=9, stride=2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(32, 64, 3, 2), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(64, 128, 3, 2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(128, 256, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+                self.m_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=self.num_management_vars_this_crop, out_channels=32, kernel_size=9, stride=2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(kernel_size=2, stride=2),
+                    nn.Conv1d(32, 64, 3, 2), 
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2), 
+                    nn.Conv1d(64, 128, 3, 2),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(128, 256, 3, 1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                )
+            else:
+                raise ValueError("Invalid value for time_intervals (should be 52 or 365)")
 
-        self.w_fc = nn.Sequential(
-            nn.Linear(args.num_weather_vars*20, 40), 
-            nn.ReLU(),
-        )
-        self.m_fc = nn.Sequential(
-            nn.Linear(args.num_management_vars*20, 40), 
-            nn.ReLU(),
-        )
-
-        if args.soil_depths == 10:
-            self.s_conv = nn.Sequential(
-                nn.Conv1d(in_channels=1, out_channels=4, kernel_size=3, stride=1),
-                nn.ReLU(),
-                nn.AvgPool1d(2, 2),
-                nn.Conv1d(4, 8, 3, 1),
-                nn.ReLU(),
-                nn.Conv1d(8, 12, 2, 1),
+            self.w_fc = nn.Sequential(
+                nn.Linear(256, 40), 
                 nn.ReLU(),
             )
-        elif args.soil_depths == 6:
-            self.s_conv = nn.Sequential(
-                nn.Conv1d(in_channels=1, out_channels=4, kernel_size=3, stride=1),
-                nn.ReLU(),
-                nn.Conv1d(4, 8, 3, 1),
-                nn.ReLU(),
-                nn.Conv1d(8, 12, 2, 1),
+            self.m_fc = nn.Sequential(
+                nn.Linear(256, 40), 
                 nn.ReLU(),
             )
-        else:
-            raise ValueError("Don't know how to deal with a number of soil_depths that is not 6 or 10")
 
-        self.s_fc = nn.Sequential(
-            nn.Linear(args.num_soil_vars*12, 40),
-            nn.ReLU(),
-        )
+            if args.soil_depths == 10:
+                self.s_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=self.num_soil_vars, out_channels=16, kernel_size=3, stride=1),
+                    nn.ReLU(),
+                    nn.AvgPool1d(2, 2),
+                    nn.Conv1d(16, 32, 3, 1),
+                    nn.ReLU(),
+                    nn.Conv1d(32, 64, 2, 1),
+                    nn.ReLU(),
+                )
+            elif args.soil_depths == 6:
+                self.s_conv = nn.Sequential(
+                    nn.Conv1d(in_channels=self.num_soil_vars, out_channels=16, kernel_size=3, stride=1),
+                    nn.ReLU(),
+                    nn.Conv1d(16, 32, 3, 1),
+                    nn.ReLU(),
+                    nn.Conv1d(32, 64, 2, 1),
+                    nn.ReLU(),
+                )
+            else:
+                raise ValueError("Don't know how to deal with a number of soil_depths that is not 6 or 10")
 
-        self.lstm = nn.LSTM(input_size=120+self.n_extra, hidden_size=self.z_dim, num_layers=1, batch_first=True)
+            self.s_fc = nn.Sequential(
+                nn.Linear(64, 40),
+                nn.ReLU(),
+            )
+            self.lstm = nn.LSTM(input_size=120+self.n_extra, hidden_size=self.z_dim, num_layers=1, batch_first=True)
+
+
         self.regressor = nn.Sequential(
             nn.Linear(args.z_dim, args.z_dim//2),
             nn.ReLU(),
             nn.Linear(args.z_dim//2, len(args.output_names)),
         )
 
+
     def forward(self, X, Y):
         n_batch, n_years, n_feat = X.shape
         X = X.reshape(-1, n_feat)
 
         # Note: 64 is batch size, 5 is number of years fed into LSTM
-        X_weather = X[:, :self.n_w].reshape(-1, 1, self.time_intervals) # [64*5*num_weather_vars, 1, time_intervals]
-        X_w = self.w_conv(X_weather)
-        X_w = X_w.squeeze(-1) # [64*5*num_weather_vars, 20]
-        X_w = X_w.reshape(n_batch*n_years, -1) # [64*5, num_weather_vars*20]
-        X_w = self.w_fc(X_w) # [64*5, 40]
+        if self.share_conv_parameters:
+            X_weather = X[:, :self.n_w].reshape(-1, 1, self.time_intervals) # [64*5*num_weather_vars, 1, time_intervals]
+            X_w = self.w_conv(X_weather)
+            X_w = X_w.squeeze(-1) # [64*5*num_weather_vars, 20]
+            X_w = X_w.reshape(n_batch*n_years, -1) # [64*5, num_weather_vars*20]
+            X_w = self.w_fc(X_w) # [64*5, 40]
 
-        X_m = X[:, self.n_w:self.n_w+self.n_m].reshape(-1, 1, self.time_intervals) # [64*5, n_m]
-        X_m = self.m_conv(X_m)
-        X_m = X_m.squeeze(-1) # [64*5*num_management_vars, 20]
-        X_m = X_m.reshape(n_batch*n_years, -1) # [64*5, num_management_vars*20]
-        X_m = self.m_fc(X_m) # [64*5, 40]
+            X_m = X[:, self.progress_indices].reshape(-1, 1, self.time_intervals) # [64*5, n_m]
+            X_m = self.m_conv(X_m)
+            X_m = X_m.squeeze(-1) # [64*5*num_management_vars, 20]
+            X_m = X_m.reshape(n_batch*n_years, -1) # [64*5, num_management_vars*20]
+            X_m = self.m_fc(X_m) # [64*5, 40]
 
-        X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, 1, self.soil_depths) # [64*5*num_soil_vars, 1, soil_depths]
-        X_s = self.s_conv(X_soil).squeeze(-1) # [64*5*num_soil_vars, 12]
-        X_s = X_s.reshape(n_batch*n_years, -1) # [64*5, num_soil_vars*12]
-        X_s = self.s_fc(X_s) # [64*5, 40]
+            X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, 1, self.soil_depths) # [64*5*num_soil_vars, 1, soil_depths]
+            X_s = self.s_conv(X_soil).squeeze(-1) # [64*5*num_soil_vars, 12]
+            X_s = X_s.reshape(n_batch*n_years, -1) # [64*5, num_soil_vars*12]
+            X_s = self.s_fc(X_s) # [64*5, 40]
+        else:
+            X_weather = X[:, :self.n_w].reshape(-1, self.num_weather_vars, self.time_intervals) # [64*5, num_weather_vars, time_intervals]
+            X_w = self.w_conv(X_weather)
+            X_w = X_w.squeeze(-1) # [64*5, 256]
+            # X_w = X_w.reshape(n_batch*n_years, -1) # [64*5, num_weather_vars*20]
+            X_w = self.w_fc(X_w) # [64*5, 40]
+
+            X_m = X[:, self.progress_indices].reshape(-1, self.num_management_vars_this_crop, self.time_intervals) # [64*5, n_m]
+            X_m = self.m_conv(X_m)
+            X_m = X_m.squeeze(-1) # [64*5*num_management_vars, 20]
+            X_m = self.m_fc(X_m) # [64*5, 40]
+
+            X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths) # [64*5*num_soil_vars, 1, soil_depths]
+            X_s = self.s_conv(X_soil).squeeze(-1) # [64*5*num_soil_vars, 12]
+            X_s = self.s_fc(X_s) # [64*5, 40]
 
         X_extra = X[:, self.n_w+self.n_m+self.n_s:] # [64*5, n_extra]
 

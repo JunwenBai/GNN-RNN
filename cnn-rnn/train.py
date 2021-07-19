@@ -25,12 +25,7 @@ METRICS = {'rmse', 'r2', 'corr'}
 huber_fn = nn.SmoothL1Loss()
 best_test = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
-yield_indices = {'corn': 2,
-                 'cotton': 3,
-                 'sorghum': 4,
-                 'soybeans': 5,
-                 'spring_wheat': 6,
-                 'winter_wheat': 7}
+
 
 
 # pred, Y assumed to be 2D: [examples x outputs]
@@ -43,6 +38,7 @@ def eval(pred, Y, args):
     metric_names = ['rmse', 'r2', 'corr', 'mae', 'mse', 'mape']
     metrics = {metric_name : {} for metric_name in metric_names}
 
+    # Compute metrics for each output variable (crop type)
     for idx in range(Y.shape[-1]): # in enumerate(args.output_names):
         output_name = args.output_names[idx]
         not_na = ~np.isnan(Y[:, idx])
@@ -226,6 +222,9 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
         # tot_corr += metrics['corr']['avg']
         # tot_mae += metrics['mae']['avg']
         # tot_mape += metrics['mape']['avg']
+
+        # Create a dataframe with true vs. predicted yield for each county in the validation
+        # year (so that we can produce maps later)
         result_df_dict = {"fips": counties.detach().numpy().astype(int).tolist(),
                           "year": years.detach().numpy().astype(int).tolist()}
         for i in range(Y.shape[2]):
@@ -272,8 +271,6 @@ def train(args):
 
     # TODO this changed!
     print(args.data_dir)
-    args.output_names = [args.crop_type]
-    args.output_idx = yield_indices[args.crop_type]
 
     if args.data_dir.endswith(".npz"):
         raw_data = np.load(args.data_dir) #load data from the data_dir

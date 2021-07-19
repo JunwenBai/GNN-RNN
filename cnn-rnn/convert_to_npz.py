@@ -1,10 +1,9 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-DATASET_CSV_FILE = "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly_1981-2020.csv"  # "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_1981-2020_gssurgo.csv"
-OUTPUT_FILE = '/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly'
+DATASET_CSV_FILE = "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_daily_1981-2020.csv"  # "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_1981-2020_gssurgo.csv"
+OUTPUT_FILE = '/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_daily'
 
-df = pd.read_csv(DATASET_CSV_FILE, delimiter=',')
-print(df.head())
-df = df.to_numpy()
-np.save(OUTPUT_FILE, df)
+data_csv = pd.read_csv(DATASET_CSV_FILE, delimiter=',')
+data_npz = np.array(data_csv)
+np.savez_compressed(OUTPUT_FILE, data=data_npz)

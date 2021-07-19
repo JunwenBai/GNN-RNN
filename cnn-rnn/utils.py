@@ -2,6 +2,7 @@ import os
 import pickle
 import torch
 import numpy as np
+import visualization_utils
 
 def build_path(path):
     path_levels = path.split('/')
@@ -15,7 +16,7 @@ def build_path(path):
             os.mkdir(cur_path)
 
 def get_X_Y(data, args):
-    if args.data_dir.endswith(".npz"):
+    if args.data_dir == "soybean_data_full.npz":
         # Old dataset (given from CNN-RNN paper)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
@@ -26,22 +27,37 @@ def get_X_Y(data, args):
         print("Initially data", data.shape)
         counties_all = data[:, 0].astype(int)
         years_all = data[:, 1].astype(int)
-        # X_all = data[:, 8:]
-        data = data[(years_all <= 2017) & (counties_all != 25019)]  # & (~np.isnan(X_all).any(axis=1))]
+        all_nan_rows = np.all(np.isnan(data[:, [args.output_idx]]), axis=1)  # Remove rows where all labels are NaN
+
+        # For now, we only have yield until 2016, so only include years up to 2016.
+        # Exclude county 25019 (Nantucket County) since it has no NLDAS data.
+        # Exclude rows where all labels are NaN.
+        data = data[(years_all <= 2016) & (counties_all != 25019) & (~all_nan_rows)]
         print("After filtering", data.shape)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
         Y = data[:, [args.output_idx]]
         X = data[:, 8:]
 
-    print("Get X Y")
+    print("get_X_Y")
     print("X shape", X.shape)
     print("Y shape", Y.shape)
 
+    # Sanity check: plot a feature for a given year/week
+    YEAR = 1981
+    WEEK = 22
+    COLUMN_IDX = (1464+WEEK-1) - 8
+    COLUMN_NAME = "corn_PROGRESS, MEASURED IN PCT PLANTED_week_" + str(WEEK)
+    visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME, YEAR)
+
+    # For now, simply replace all NA with 0.
     X = np.nan_to_num(X)
+
+    # Compute the unique years and counties
     min_year = int(min(years))
     max_year = int(max(years))
     county_set = sorted(list(set(counties)))
+
 
     # # TODO Impute missing X values. First compute the mean feature vector for every county; if no data exists for that county, replace it with mean feature for the year (across all counties)
     # county_avgs = dict()
@@ -73,13 +89,16 @@ def get_X_Y(data, args):
     # exit(0)
 
 
-    # For standardization purposes, only consider train years (e.g. the years before args.test_year)
+    # For standardization purposes, only consider train years (e.g. the years before args.test_year - 1, which is the validation year)
     known_years = data[:, 1] <= (args.test_year-1)
 
     # Standardize each feature (column of X)
     X_mean = np.mean(X[known_years], axis=0, keepdims=True)
     X_std = np.std(X[known_years], axis=0, keepdims=True)
     X = (X - X_mean) / (X_std + 1e-10)
+
+    # Sanity check: plot map of feature after standardizing
+    visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME + "_std", YEAR)
 
     # Compute average yield of each year (to detect underlying yearly trends)
     avg_Y = {}
@@ -131,7 +150,7 @@ def get_X_Y(data, args):
     indices = []  # Indices of counties present in dataset (e.g. excluding Alaska/Hawaii) 
     for i, loc in enumerate(county_set):
         order_map[loc] = i
-        if args.data_dir.endswith(".npz"):
+        if args.data_dir == "soybean_data_full.npz":
             fid = id_to_fid[loc]
         else:
             fid = loc
