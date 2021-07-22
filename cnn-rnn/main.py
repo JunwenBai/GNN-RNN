@@ -75,6 +75,7 @@ parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, h
 parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
 parser.add_argument('-share_conv_params', "--share_conv_parameters", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
+parser.add_argument('-combine_weather_and_management', "--combine_weather_and_management", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
 
 # ONLY used for test_predictions_over_time, if we're plotting predictions over time for a specific county and the test year.
 parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=int, help='County FIPS to plot (ONLY used for the "test_predictions_over_time" mode).')

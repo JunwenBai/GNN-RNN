@@ -16,6 +16,7 @@ from utils import get_X_Y, build_path
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import pandas as pd
+import visualization_utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sys.path.append('./')
@@ -133,11 +134,13 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
     tot_batch = len(train_loader)
     all_pred = []
     all_Y = []
+    result_dfs = []
 
-    for batch_idx, (X, Y, _, _) in enumerate(train_loader): # 397
-        X, Y = X.to(device), Y.to(device) # [64, 5, 431] [64, 5]
+    for batch_idx, (X, Y, counties, years) in enumerate(train_loader): # 397
+        X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)  # X: [batch size, 5, num features]  Y: [batch size, 5]
         optimizer.zero_grad()
-        pred = model(X, Y)
+        predictions_std = model(X, Y)
+        pred = predictions_std * args.stds + args.means
         loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
                loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
 
@@ -183,6 +186,16 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
             # writer.add_scalar("Train/mae", tot_mae/n_batch, cur_step)
             # writer.add_scalar("Train/mape", tot_mape/n_batch, cur_step)
 
+        # Create a dataframe with true vs. predicted yield (so that we can produce maps later)
+        result_df_dict = {"fips": counties.detach().cpu().numpy().astype(int).tolist(),
+                          "year": years.detach().cpu().numpy().astype(int).tolist()}
+        for i in range(Y.shape[2]):
+            output_name = args.output_names[i]
+            result_df_dict["predicted_" + output_name] = pred[:, -1, i].detach().cpu().numpy().tolist()
+            result_df_dict["true_" + output_name] = Y[:, -1, i].detach().cpu().numpy().tolist()
+        result_dfs.append(pd.DataFrame(result_df_dict))
+
+    results = pd.concat(result_dfs)
     n_batch = batch_idx+1
     # print("\n###### Overall training metrics")
     # print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
@@ -193,10 +206,13 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
     all_pred = torch.cat(all_pred, dim=0)
     all_Y = torch.cat(all_Y, dim=0)
     metrics_all = eval(all_pred, all_Y, args)
+
     print("\n###### Overall training metrics")
     print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
         tot_loss/n_batch, metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], metrics_all['mae']['avg'], metrics_all['mape']['avg'])
     )
+    return metrics_all['rmse']['avg'], results
+
 
 def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
     print("********************")
@@ -209,7 +225,9 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
     all_Y = []
     for batch_idx, (X, Y, counties, years) in enumerate(test_loader):
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
-        pred = model(X, Y)
+        predictions_std = model(X, Y)
+        pred = predictions_std * args.stds + args.means
+
         loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
                loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
         tot_loss += loss.item()
@@ -225,12 +243,12 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
 
         # Create a dataframe with true vs. predicted yield for each county in the validation
         # year (so that we can produce maps later)
-        result_df_dict = {"fips": counties.detach().numpy().astype(int).tolist(),
-                          "year": years.detach().numpy().astype(int).tolist()}
+        result_df_dict = {"fips": counties.detach().cpu().numpy().astype(int).tolist(),
+                          "year": years.detach().cpu().numpy().astype(int).tolist()}
         for i in range(Y.shape[2]):
             output_name = args.output_names[i]
-            result_df_dict["predicted_" + output_name] = pred[:, -1, i].detach().numpy().tolist()
-            result_df_dict["true_" + output_name] = Y[:, -1, i].detach().numpy().tolist()
+            result_df_dict["predicted_" + output_name] = pred[:, -1, i].detach().cpu().numpy().tolist()
+            result_df_dict["true_" + output_name] = Y[:, -1, i].detach().cpu().numpy().tolist()
         result_dfs.append(pd.DataFrame(result_df_dict))
 
     results = pd.concat(result_dfs)
@@ -241,6 +259,7 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
     all_pred = torch.cat(all_pred, dim=0)
     all_Y = torch.cat(all_Y, dim=0)
     metrics_all = eval(all_pred, all_Y, args)
+
     print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
         tot_loss/n_batch, metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], metrics_all['mae']['avg'], metrics_all['mape']['avg'])
     )
@@ -296,8 +315,8 @@ def train(args):
         Y_i = Y_i[~np.isnan(Y_i)]
         means.append(np.mean(Y_i))
         stds.append(np.std(Y_i))
-    args.means = torch.tensor(means)
-    args.stds = torch.tensor(stds)
+    args.means = torch.tensor(means, device=device)
+    args.stds = torch.tensor(stds, device=device)
 
 
     # Create Tensors, datasets, dataloaders
@@ -319,11 +338,16 @@ def train(args):
     n_train = len(X_train)
     param_setting = "{}_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_len-{}_seed-{}".format(
         args.model, args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.length, args.seed)
-
+    if args.share_conv_parameters:
+        param_setting += "_share-params"
+    if args.combine_weather_and_management:
+        param_setting += "_combine-w-m"
     summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
     model_dir = 'model/{}/{}'.format(args.dataset, param_setting)
+    visualizations_dir = 'visualizations/{}/{}'.format(args.dataset, param_setting)
     build_path(summary_dir)
     build_path(model_dir)
+    build_path(visualizations_dir)
     writer = SummaryWriter(log_dir=summary_dir)
 
     print('building network...')
@@ -356,15 +380,23 @@ def train(args):
 
     best_val_rmse = 1e9
     for epoch in range(args.max_epoch):
-        train_epoch(args, model, device, train_loader, optimizer, epoch, writer)
+        train_rmse, train_results = train_epoch(args, model, device, train_loader, optimizer, epoch, writer)
         val_rmse, val_results = val_epoch(args, model, device, val_loader, epoch, "Val", writer)
         if val_rmse < best_val_rmse:
-            val_epoch(args, model, device, test_loader, epoch, "Test", writer)
+            test_rmse, test_results = val_epoch(args, model, device, test_loader, epoch, "Test", writer)
             best_val_rmse = val_rmse
             torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
             print('save model to', model_dir)
-            print('results file', os.path.join(model_dir, "results.csv"))
-            val_results.to_csv(os.path.join(model_dir, "results.csv"), index=False)
+            print('results file', os.path.join(model_dir, "val_results.csv"))
+            train_results.to_csv(os.path.join(model_dir, "train_results.csv"), index=False)
+            val_results.to_csv(os.path.join(model_dir, "val_results.csv"), index=False)
+            test_results.to_csv(os.path.join(model_dir, "test_results.csv"), index=False)
+
+            # Plot results
+            visualization_utils.plot_true_vs_predicted(train_results[train_results["year"] == 1993], args.output_names,  "1993_train", visualizations_dir)
+            visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", visualizations_dir)
+            visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", visualizations_dir)
+
 
         print("BEST Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         print("BEST Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))

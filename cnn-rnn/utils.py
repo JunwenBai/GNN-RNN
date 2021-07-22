@@ -27,12 +27,12 @@ def get_X_Y(data, args):
         print("Initially data", data.shape)
         counties_all = data[:, 0].astype(int)
         years_all = data[:, 1].astype(int)
-        all_nan_rows = np.all(np.isnan(data[:, [args.output_idx]]), axis=1)  # Remove rows where all labels are NaN
+        # all_nan_rows = np.all(np.isnan(data[:, [args.output_idx]]), axis=1)  # Remove rows where all labels are NaN
 
         # For now, we only have yield until 2016, so only include years up to 2016.
         # Exclude county 25019 (Nantucket County) since it has no NLDAS data.
         # Exclude rows where all labels are NaN.
-        data = data[(years_all <= 2016) & (counties_all != 25019) & (~all_nan_rows)]
+        data = data[(years_all <= 2016) & (counties_all != 25019)]  # & (~all_nan_rows)]
         print("After filtering", data.shape)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
@@ -43,14 +43,33 @@ def get_X_Y(data, args):
     print("X shape", X.shape)
     print("Y shape", Y.shape)
 
+    # Fill in gaps for progress data
+    assert ((args.progress_indices[-1] + 1 - args.progress_indices[0]) % args.time_intervals == 0)
+    # Loop through each example
+    for i in range(X.shape[0]):
+        # Loop through each progress variable (which is itself a range of "args.time_intervals" variables)
+        for progress_var_start in range(args.progress_indices[0], args.progress_indices[-1] + 1, args.time_intervals):
+            current_progress = 0
+            for progress_idx in range(progress_var_start, progress_var_start + args.time_intervals):
+                if np.isnan(X[i, progress_idx]):
+                    X[i, progress_idx] = current_progress
+                else:
+                    current_progress = X[i, progress_idx]
+
     # Sanity check: plot a feature for a given year/week
+    print("Random checks")
+    X_iowa = X[(counties == 19065) & (years == 1993)]
+    print(X_iowa[0, 1456:1508])
+    print(X_iowa[0, 1508:1560])
+    print(X_iowa[0, 1560:1612])
+
     YEAR = 1981
     WEEK = 22
     COLUMN_IDX = (1464+WEEK-1) - 8
     COLUMN_NAME = "corn_PROGRESS, MEASURED IN PCT PLANTED_week_" + str(WEEK)
-    visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME, YEAR)
+    # visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME, YEAR)
 
-    # For now, simply replace all NA with 0.
+    # For now, replace all NA with 0.
     X = np.nan_to_num(X)
 
     # Compute the unique years and counties
@@ -89,16 +108,6 @@ def get_X_Y(data, args):
     # exit(0)
 
 
-    # For standardization purposes, only consider train years (e.g. the years before args.test_year - 1, which is the validation year)
-    known_years = data[:, 1] <= (args.test_year-1)
-
-    # Standardize each feature (column of X)
-    X_mean = np.mean(X[known_years], axis=0, keepdims=True)
-    X_std = np.std(X[known_years], axis=0, keepdims=True)
-    X = (X - X_mean) / (X_std + 1e-10)
-
-    # Sanity check: plot map of feature after standardizing
-    visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME + "_std", YEAR)
 
     # Compute average yield of each year (to detect underlying yearly trends)
     avg_Y = {}
@@ -106,7 +115,6 @@ def get_X_Y(data, args):
     for year in range(min_year, max_year+1):
         avg_Y[year] = np.nanmean(Y[years == year, :], axis=0)
         avg_Y_lst.append(avg_Y[year])
-
     '''mean_Y = np.mean(avg_Y_lst)
     std_Y = np.std(avg_Y_lst)
     for year in range(min_year, max_year+1):
@@ -117,8 +125,19 @@ def get_X_Y(data, args):
     Ybar = []
     for year in years:
         Ybar.append(avg_Y[year-1])
-    Ybar = np.array(Ybar)  #.reshape(-1, 1)
+    Ybar = np.array(Ybar)  #.reshape(-1, 1) - removed this because we may have multiple outputs
     X = np.concatenate((X, Ybar), axis=1)
+
+    # For standardization purposes, only consider train years (e.g. the years before args.test_year - 1, which is the validation year)
+    known_years = data[:, 1] < (args.test_year-1)
+
+    # Standardize each feature (column of X)
+    X_mean = np.mean(X[known_years], axis=0, keepdims=True)
+    X_std = np.std(X[known_years], axis=0, keepdims=True)
+    X = (X - X_mean) / (X_std + 1e-10)
+
+    # Sanity check: plot map of feature after standardizing
+    # visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME + "_std", YEAR)
 
     # Create dictionaries mapping from (county + year) to features/labels
     X_dict = {}
@@ -161,18 +180,21 @@ def get_X_Y(data, args):
         for i, county in enumerate(county_set):
             # If data isn't present, fill in county features with the average feature values
             # of neighbors, or if no neighbors have data, replace them with the average
-            # features of all US counties.
+            # features of all US counties for the year.
             if year not in X_dict[county]:
+                print("No data for county", county, "year", year)
                 X_nbs = []
                 Y_nbs = []
                 for j, nb in enumerate(county_set):
                     if sub_adj[i, j] == 1 and year in X_dict[nb]:
+                        print("--> Adding data from neighboring county", nb)
                         X_nbs.append(X_dict[nb][year])
                         Y_nbs.append(Y_dict[nb][year])
                 if len(X_nbs):
                     X_dict[county][year] = np.mean(X_nbs, axis=0)
                     Y_dict[county][year] = np.mean(Y_nbs, axis=0)
                 else:
+                    print("--> Not even neighboring counties have data :O")
                     X_dict[county][year] = year_avg[year]
                     Y_dict[county][year] = avg_Y[year]
     #########
@@ -218,6 +240,10 @@ def get_X_Y(data, args):
                     seq_Y.append(Y_dict[county][seq_year]) # 1
 
             seq_X, seq_Y = np.array(seq_X), np.array(seq_Y)
+
+            # If all yield variables for the last year are NaN, remove this sequence
+            if np.all(np.isnan(seq_Y[-1, :])):
+                continue
 
             X_seqs.append(seq_X)
             Y_seqs.append(seq_Y)
