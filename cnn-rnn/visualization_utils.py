@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.linear_model import LinearRegression
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -68,13 +69,19 @@ def plot_true_vs_predicted(results_df, crop_types, description,
         # Set up subplots
         fig, axeslist = plt.subplots(3, 1, figsize=(30, 45))
 
+        # Compute range of colorbars (by taking the min across both true and predicted)
+        min_yield = min(county_map["predicted_" + crop_type].min(), county_map["true_" + crop_type].min())
+        max_yield = max(county_map["predicted_" + crop_type].max(), county_map["true_" + crop_type].max())
+        max_absolute_difference =  county_map["difference_" + crop_type].abs().max()
+
         # Customize colorbar
         divider = make_axes_locatable(axeslist[0])
         cax = divider.append_axes("right", size="3%", pad=0)
         cax.tick_params(labelsize=24)  # Modify colorbar font size
 
         # Plot predicted yields
-        county_map.plot(column="predicted_" + crop_type, ax=axeslist[0], legend=True, cmap='RdYlGn', edgecolor="black", cax=cax,
+        county_map.plot(column="predicted_" + crop_type, ax=axeslist[0], legend=True, cmap='RdYlGn',
+                        vmin=min_yield, vmax=max_yield, edgecolor="black", cax=cax,
                         missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                             "color": "lightgrey",
                             # "edgecolor": "red",
@@ -86,7 +93,8 @@ def plot_true_vs_predicted(results_df, crop_types, description,
         divider = make_axes_locatable(axeslist[1])
         cax = divider.append_axes("right", size="3%", pad=0)
         cax.tick_params(labelsize=24)
-        county_map.plot(column="true_" + crop_type, ax=axeslist[1], legend=True, cmap='RdYlGn', edgecolor="black", cax=cax,
+        county_map.plot(column="true_" + crop_type, ax=axeslist[1], legend=True, cmap='RdYlGn',
+                        vmin=min_yield, vmax=max_yield, edgecolor="black", cax=cax,
                         missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                             "color": "lightgrey",
                             # "edgecolor": "red",
@@ -98,7 +106,8 @@ def plot_true_vs_predicted(results_df, crop_types, description,
         divider = make_axes_locatable(axeslist[2])
         cax = divider.append_axes("right", size="3%", pad=0)
         cax.tick_params(labelsize=24)
-        county_map.plot(column="difference_" + crop_type, ax=axeslist[2], legend=True, cmap='RdYlGn', edgecolor="black", cax=cax,
+        county_map.plot(column="difference_" + crop_type, ax=axeslist[2], legend=True, cmap='RdYlGn',
+                        vmin=-max_absolute_difference, vmax=max_absolute_difference, edgecolor="black", cax=cax,
                         missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                             "color": "lightgrey",
                             # "edgecolor": "red",

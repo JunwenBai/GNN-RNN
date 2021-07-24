@@ -9,8 +9,7 @@ OUTPUT_INDICES = {'corn': 2,
                   'cotton': 3,
                   'sorghum': 4,
                   'soybeans': 5,
-                  'spring_wheat': 6,
-                  'winter_wheat': 7}
+                  'wheat': 6}
 
 # Indices of the progress variables for each crop type in the X array.
 PROGRESS_INDICES_DAILY = {'corn': list(range(8403-8, 13148-8)),
@@ -80,7 +79,6 @@ parser.add_argument('-combine_weather_and_management', "--combine_weather_and_ma
 # ONLY used for test_predictions_over_time, if we're plotting predictions over time for a specific county and the test year.
 parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=int, help='County FIPS to plot (ONLY used for the "test_predictions_over_time" mode).')
 
-
 args = parser.parse_args()
 
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
@@ -89,7 +87,7 @@ args.output_names = [args.crop_type]
 if "daily" in args.data_dir:
     args.time_intervals = 365
     args.progress_indices = PROGRESS_INDICES_DAILY[args.crop_type]
-elif "weekly" in args.data_dir or args.data_dir.endswith(".npy") or args.data_dir.endswith(".npz"):  # A bit of a hack to accomodate the previous paper's CNN-RNN dataset, which is weekly
+elif "weekly" in args.data_dir or args.data_dir.endswith(".npy") or args.data_dir == "soybean_data_full.npz":  # A bit of a hack to accomodate the previous paper's CNN-RNN dataset, which is weekly
     args.time_intervals = 52
     args.progress_indices = PROGRESS_INDICES_WEEKLY[args.crop_type]
 else:

@@ -253,12 +253,12 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
 
     results = pd.concat(result_dfs)
 
-    n_batch = batch_idx+1
-
     # Calculate stats on all data
     all_pred = torch.cat(all_pred, dim=0)
     all_Y = torch.cat(all_Y, dim=0)
     metrics_all = eval(all_pred, all_Y, args)
+
+    n_batch = batch_idx+1
 
     print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
         tot_loss/n_batch, metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], metrics_all['mae']['avg'], metrics_all['mape']['avg'])

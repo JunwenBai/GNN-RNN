@@ -128,6 +128,7 @@ class CNN_RNN(nn.Module):
             print('Each variable has own conv params!')
 
             if args.combine_weather_and_management:  # Process weather and management data in same CNN
+                print("Processing weather and management data in same CNN!")
                 if args.time_intervals == 52:  # Weekly data
                     self.wm_conv = nn.Sequential(
                         nn.Conv1d(in_channels=self.num_weather_vars + self.num_management_vars_this_crop, out_channels=64, kernel_size=9, stride=1),
@@ -300,12 +301,12 @@ class CNN_RNN(nn.Module):
             X_s = self.s_fc(X_s) # [64*5, 40]
         else:
             X_w = X[:, :self.n_w].reshape(-1, self.num_weather_vars, self.time_intervals) # [64*5, num_weather_vars, time_intervals]
-            X_m = X[:, self.progress_indices].reshape(-1, self.num_management_vars_this_crop, self.time_intervals) # [64*5, n_m]
+            X_m = X[:, self.progress_indices].reshape(-1, self.num_management_vars_this_crop, self.time_intervals) # [64*5, num_management_vars_this_crop, time_intervals]
             
             if self.combine_weather_and_management:
                 X_wm = torch.cat((X_w, X_m), dim=1)
                 X_wm = self.wm_conv(X_wm).squeeze(-1) # [64*5, 256]
-                X_wm = self.wm_fc(X_wm) # [64*5, 40]
+                X_wm = self.wm_fc(X_wm) # [64*5, 80]
             else:
                 X_w = self.w_conv(X_w).squeeze(-1)
                 X_w = self.w_fc(X_w)
@@ -313,20 +314,20 @@ class CNN_RNN(nn.Module):
                 X_m = self.m_fc(X_m) # [64*5, 40]
                 X_wm = torch.cat((X_w, X_m), dim=1)  # [64*5, 80]
 
-            X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths) # [64*5*num_soil_vars, 1, soil_depths]
-            X_s = self.s_conv(X_soil).squeeze(-1) # [64*5*num_soil_vars, 12]
+            X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths) # [64*5, num_soil_vars, soil_depths]
+            X_s = self.s_conv(X_soil).squeeze(-1) # [64*5, 64]
             X_s = self.s_fc(X_s) # [64*5, 40]
 
         X_extra = X[:, self.n_w+self.n_m+self.n_s:] # [64*5, n_extra]
 
-        X_all = torch.cat((X_wm, X_s, X_extra), dim=1) # [64*5, 40+40+n_m+n_extra]  TODO put X_m (progress data) back in
-        X_all = X_all.reshape(n_batch, n_years, -1) # [64, 5, 40+40+n_m+n_extra]
+        X_all = torch.cat((X_wm, X_s, X_extra), dim=1) # [64*5, 40+40+40+n_extra]  TODO put X_m (progress data) back in
+        X_all = X_all.reshape(n_batch, n_years, -1) # [64, 5, 40+40+40+n_extra]
 
         out, (last_h, last_c) = self.lstm(X_all)
         #print("out:", out.shape) # [64, 5, 64]
         #print("last_h:", last_h.shape) # [1, 64, 64]
         #print("last_c:", last_c.shape) # [1, 64, 64]
-        pred = self.regressor(out)  #.squeeze(-1) # [64, 5]
+        pred = self.regressor(out)  #.squeeze(-1) # [64, 5, num_outputs]
         
         return pred
 
@@ -336,6 +337,8 @@ class RNN(nn.Module):
 
     def __init__(self, args):
         super(RNN, self).__init__()
+        print("The RNN is being used!")
+        exit(1)
         self.z_dim = args.z_dim
         self.n_w = 52*6
         self.n_s = 10*10
@@ -359,7 +362,8 @@ class RNN(nn.Module):
 
 
     def forward(self, X):
-
+        print("RNN forward is being called!")
+        exit(1)
         n_batch, n_years, n_feat = X.shape
         X = X.reshape(-1, n_feat)
         X = self.fc(X)

@@ -32,12 +32,12 @@ def get_X_Y(data, args):
         # For now, we only have yield until 2016, so only include years up to 2016.
         # Exclude county 25019 (Nantucket County) since it has no NLDAS data.
         # Exclude rows where all labels are NaN.
-        data = data[(years_all <= 2016) & (counties_all != 25019)]  # & (~all_nan_rows)]
+        data = data[(years_all <= 2018) & (counties_all != 25019)]  # & (~all_nan_rows)]
         print("After filtering", data.shape)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
         Y = data[:, [args.output_idx]]
-        X = data[:, 8:]
+        X = data[:, 7:]
 
     print("get_X_Y")
     print("X shape", X.shape)
