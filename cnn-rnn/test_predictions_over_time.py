@@ -24,7 +24,7 @@ sys.path.append('./')
 # Compute and plot predictions over time for a specific row of X_test.
 # "county_test_row" and "county_train_avg" should be 1-D vectors for a specific county/year
 # "Y_true" is a 1-D vector, of the labels for that specific row.
-def compute_and_plot_predictions(args, model, device, county_test_row, county_train_avg, Y_true):
+def compute_and_plot_predictions(args, model, device, county_test_row, county_train_avg, Y_true, visualizations_dir):
     model.eval()
     
     # Generate a batch for every week (time interval)
@@ -54,7 +54,7 @@ def compute_and_plot_predictions(args, model, device, county_test_row, county_tr
         plt.ylabel("Predicted yield")
         plt.axhline(y = Y_true[idx], color='r', linestyle='--')  # Dashed line for true value for this year
         plt.title("Predictions over time: " + str(output_name) + ", county " + str(args.county_to_plot) + ", year " + str(args.test_year))
-        plt.savefig("predictions_over_time_county_" + str(args.county_to_plot) + "_year_" + str(args.test_year) + "_" + output_name + ".png")
+        plt.savefig(os.path.join(visualizations_dir, "predictions_over_time_county_" + str(args.county_to_plot) + "_year_" + str(args.test_year) + "_" + output_name + ".png"))
         plt.close()
         
 
@@ -105,6 +105,12 @@ def test_predictions_over_time(args):
     model.load_state_dict(torch.load(args.checkpoint_path))
     model.eval()
 
-    compute_and_plot_predictions(args, model, device, county_test_row, county_train_avg, np.squeeze(county_test_Y)[-1, :])
+    # Compute results directory
+    normalized_checkpoint_path = os.path.normpath(args.checkpoint_path)
+    normalized_checkpoint_path = normalized_checkpoint_path.split(os.sep)
+    visualizations_dir = os.path.join(results, normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
+    print("VIS DIR", visualizations_dir)
+    exit(1)
+    compute_and_plot_predictions(args, model, device, county_test_row, county_train_avg, np.squeeze(county_test_Y)[-1, :], visualizations_dir)
 
 

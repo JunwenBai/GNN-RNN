@@ -1,3 +1,4 @@
+import csv
 import math
 import matplotlib.pyplot as plt
 from time import time
@@ -339,16 +340,23 @@ def train(args):
         param_setting += "_share-params"
     if args.combine_weather_and_management:
         param_setting += "_combine-w-m"
+
+    # Directories to store TensorBoard summary, model params, and results
     summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
     model_dir = 'model/{}/{}'.format(args.dataset, param_setting)
-    visualizations_dir = 'visualizations/{}/{}'.format(args.dataset, param_setting)
+    results_dir = 'results/{}/{}'.format(args.dataset, param_setting)
     build_path(summary_dir)
     build_path(model_dir)
-    build_path(visualizations_dir)
+    build_path(results_dir)
     writer = SummaryWriter(log_dir=summary_dir)
-
     print('building network...')
 
+    # Summary csv file of all results. Create this if it doesn't exist
+    results_summary_file = os.path.join('results/results_summary.csv')
+    if not os.path.isfile(results_summary_file):
+        with open(results_summary_file, mode='w') as f:
+            csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr'])
 
     #building the model 
     if args.model == "cnn_rnn":
@@ -377,12 +385,17 @@ def train(args):
 
 
     best_val_rmse = 1e9
+
+    # Store RMSE/R2 at each epoch, for plotting later
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
+
+    # Train/validate/test
     for epoch in range(args.max_epoch):
         train_metrics, train_results = train_epoch(args, model, device, train_loader, optimizer, epoch, writer)
         val_metrics, val_results = val_epoch(args, model, device, val_loader, epoch, "Val", writer)
         test_metrics, test_results = val_epoch(args, model, device, test_loader, epoch, "Test", writer)
 
+        # Record epoch metrics in list
         val_rmse = val_metrics['rmse']['avg']
         train_rmse_list.append(train_metrics['rmse']['avg'])
         val_rmse_list.append(val_metrics['rmse']['avg'])
@@ -396,17 +409,21 @@ def train(args):
             update_metrics(val_metrics['rmse']['avg'], val_metrics['r2']['avg'], val_metrics['corr']['avg'], mode="Val")
             update_metrics(test_metrics['rmse']['avg'], test_metrics['r2']['avg'], test_metrics['corr']['avg'], mode="Test")
             best_val_rmse = val_rmse
+
+            # Save model to file
             torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
             print('save model to', model_dir)
             print('results file', os.path.join(model_dir, "val_results.csv"))
-            train_results.to_csv(os.path.join(model_dir, "train_results.csv"), index=False)
-            val_results.to_csv(os.path.join(model_dir, "val_results.csv"), index=False)
-            test_results.to_csv(os.path.join(model_dir, "test_results.csv"), index=False)
+            
+            # Save raw results (true and predicted labels) to files
+            train_results.to_csv(os.path.join(results_dir, "train_results.csv"), index=False)
+            val_results.to_csv(os.path.join(results_dir, "val_results.csv"), index=False)
+            test_results.to_csv(os.path.join(results_dir, "test_results.csv"), index=False)
 
             # Plot results
-            visualization_utils.plot_true_vs_predicted(train_results[train_results["year"] == 1993], args.output_names,  "1993_train", visualizations_dir)
-            visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", visualizations_dir)
-            visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", visualizations_dir)
+            visualization_utils.plot_true_vs_predicted(train_results[train_results["year"] == 1993], args.output_names,  "1993_train", results_dir)
+            visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", results_dir)
+            visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", results_dir)
 
 
         print("BEST Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
@@ -416,12 +433,25 @@ def train(args):
     print("Command used:", " ".join(sys.argv))
     print("Model dir:", model_dir)
 
+    # Record final results
+    git_commit = get_git_revision_hash()
+    command_string = " ".join(sys.argv)
+    print("Command used:", command_string)
+    print("Model dir:", model_dir)    
+    with open(results_summary_file, mode='a+') as f:
+        csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        csv_writer.writerow([args.dataset, args.model, git_commit, command_string,
+                             str(args.test_year - 1), best_val['rmse'], best_val['r2'], best_val['corr'],
+                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr']])
+
     # Record Git commit and command used, along with final metrics
-    with open(os.path.join(model_dir, "command.txt"), 'w') as f:
-        f.write("Git commit: " + get_git_revision_hash() + "\n")
-        f.write("Command: " + " ".join(sys.argv) + "\n\n")
-        f.write("BEST Val | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
-        f.write("BEST Test | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
+    with open(os.path.join(results_dir, "summary.txt"), 'w') as f:
+        f.write("Algorithm: " + args.model + "\n")
+        f.write("Dataset: " + args.dataset + "\n")
+        f.write("Git commit: " + git_commit + "\n")
+        f.write("Command: " + command_string + "\n\n")
+        f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
+        f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
  
     # Plot RMSE over time
     epoch_list = range(len(train_rmse_list))
@@ -435,7 +465,7 @@ def train(args):
     plt.legend(handles=plots)
     plt.xlabel('Epoch #')
     plt.ylabel('RMSE')
-    plt.savefig(os.path.join(model_dir, "rmse.png"))
+    plt.savefig(os.path.join(results_dir, "metrics_rmse.png"))
     plt.close()
 
     # Plot R2 over time
@@ -449,5 +479,5 @@ def train(args):
     plt.legend(handles=plots)
     plt.xlabel('Epoch #')
     plt.ylabel('R^2')
-    plt.savefig(os.path.join(model_dir, "r2.png"))
+    plt.savefig(os.path.join(results_dir, "metrics_r2.png"))
     plt.close()

@@ -14,7 +14,7 @@ MAP_FILE = "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/gz_2010_us_
 def plot_histogram(values, range, column_name, year,
                    output_dir='/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/figures/python'):
     values = values[~np.isnan(values)]  # Remove NaN
-    plt.hist(values, range=(column_mins[yield_idx], column_maxs[yield_idx]))
+    plt.hist(values, range=range)
     plt.savefig(os.path.join(output_dir, column_name + "_" + str(year) + "_histogram.png"))
     plt.close()
 
@@ -128,7 +128,7 @@ def plot_true_vs_predicted(results_df, crop_types, description,
         axeslist[1].tick_params(labelsize=24)
         axeslist[2].set_title("Difference (Predicted - True)", fontsize=36)
         axeslist[2].tick_params(labelsize=24)
-        plt.savefig(os.path.join(output_dir, "yield_map_" + crop_type + "_" + description + ".png"))
+        plt.savefig(os.path.join(output_dir, "true_vs_predicted_map_" + crop_type + "_" + description + ".png"))
         plt.close()
     
     # Create scatter plots: true on x-axis, predicted on y-axis
@@ -165,7 +165,7 @@ def plot_true_vs_predicted(results_df, crop_types, description,
         # ax.set_title(crop_type)
     plt.tight_layout()
     fig.subplots_adjust(top=0.90)
-    plt.savefig(os.path.join(output_dir, "scatters_" + description + ".png"))
+    plt.savefig(os.path.join(output_dir, "true_vs_predicted_scatter_" + description + ".png"))
     plt.close()
 
   
