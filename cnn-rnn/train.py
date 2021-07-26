@@ -349,10 +349,6 @@ def train(args):
 
     print('building network...')
 
-    # Record Git commit and command used
-    with open(os.path.join(model_dir, "command.txt"), 'w') as f:
-        f.write("Git commit: " + get_git_revision_hash() + "\n")
-        f.write("Command: " + " ".join(sys.argv))
 
     #building the model 
     if args.model == "cnn_rnn":
@@ -420,6 +416,13 @@ def train(args):
     print("Command used:", " ".join(sys.argv))
     print("Model dir:", model_dir)
 
+    # Record Git commit and command used, along with final metrics
+    with open(os.path.join(model_dir, "command.txt"), 'w') as f:
+        f.write("Git commit: " + get_git_revision_hash() + "\n")
+        f.write("Command: " + " ".join(sys.argv) + "\n\n")
+        f.write("BEST Val | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
+        f.write("BEST Test | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
+ 
     # Plot RMSE over time
     epoch_list = range(len(train_rmse_list))
     plots = []
