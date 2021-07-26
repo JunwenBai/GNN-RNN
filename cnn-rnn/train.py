@@ -349,7 +349,6 @@ def train(args):
     build_path(model_dir)
     build_path(results_dir)
     writer = SummaryWriter(log_dir=summary_dir)
-    print('building network...')
 
     # Summary csv file of all results. Create this if it doesn't exist
     results_summary_file = os.path.join('results/results_summary.csv')
@@ -359,6 +358,7 @@ def train(args):
             csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr'])
 
     #building the model 
+    print('building network...')
     if args.model == "cnn_rnn":
         model = CNN_RNN(args).to(device)
     elif args.model == "rnn":
@@ -413,7 +413,7 @@ def train(args):
             # Save model to file
             torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
             print('save model to', model_dir)
-            print('results file', os.path.join(model_dir, "val_results.csv"))
+            print('results file', os.path.join(results_dir, "val_results.csv"))
             
             # Save raw results (true and predicted labels) to files
             train_results.to_csv(os.path.join(results_dir, "train_results.csv"), index=False)
@@ -429,9 +429,7 @@ def train(args):
         print("BEST Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         print("BEST Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
         scheduler.step()
-    
-    print("Command used:", " ".join(sys.argv))
-    print("Model dir:", model_dir)
+
 
     # Record final results
     git_commit = get_git_revision_hash()
