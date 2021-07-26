@@ -2,6 +2,7 @@ import os
 import pickle
 import torch
 import numpy as np
+import subprocess
 import visualization_utils
 
 def build_path(path):
@@ -14,6 +15,9 @@ def build_path(path):
             cur_path = path_seg
         if not os.path.exists(cur_path):
             os.mkdir(cur_path)
+
+def get_git_revision_hash():
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
 
 def get_X_Y(data, args):
     if args.data_dir == "soybean_data_full.npz":
@@ -32,7 +36,7 @@ def get_X_Y(data, args):
         # For now, we only have yield until 2016, so only include years up to 2016.
         # Exclude county 25019 (Nantucket County) since it has no NLDAS data.
         # Exclude rows where all labels are NaN.
-        data = data[(years_all <= 2018) & (counties_all != 25019)]  # & (~all_nan_rows)]
+        data = data[(years_all <= args.test_year) & (counties_all != 25019)]  # & (~all_nan_rows)]
         print("After filtering", data.shape)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)

@@ -12,18 +12,16 @@ OUTPUT_INDICES = {'corn': 2,
                   'wheat': 6}
 
 # Indices of the progress variables for each crop type in the X array.
-PROGRESS_INDICES_DAILY = {'corn': list(range(8403-8, 13148-8)),
-                          'cotton': list(range(13148-8, 17893-8)),
-                          'sorghum': list(range(17893-8, 22638-8)),
-                          'soybeans': list(range(22638-8, 28113-8)),
-                          'spring_wheat': list(range(28113-8, 37603-8)),
-                          'winter_wheat': list(range(37603-8, 43443-8))}
-PROGRESS_INDICES_WEEKLY = {'corn': list(range(1204-8, 1880-8)),
-                          'cotton': list(range(1880-8, 2556-8)),
-                          'sorghum': list(range(2556-8, 3232-8)),
-                          'soybeans': list(range(3232-8, 4012-8)),
-                          'spring_wheat': list(range(4688-8, 5364-8)),  # NOTE: only use data for spring wheat EXCLUDING DURUM
-                          'winter_wheat': list(range(5364-8, 6196-8))}
+PROGRESS_INDICES_DAILY = {'corn': list(range(8402-7, 13147-7)),
+                          'cotton': list(range(13147-7, 17892-7)),
+                          'sorghum': list(range(17892-7, 22637-7)),
+                          'soybeans': list(range(22637-7, 28112-7)),
+                          'wheat': list(range(28112-7, 43442-7))}
+PROGRESS_INDICES_WEEKLY = {'corn': list(range(1203-7, 1879-7)),
+                          'cotton': list(range(1879-7, 2555-7)),
+                          'sorghum': list(range(2555-7, 3231-7)),
+                          'soybeans': list(range(3231-7, 4011-7)),
+                          'spring_wheat': list(range(4011-7, 6195-7))}
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-dataset', "--dataset", default='soybean', type=str, help='dataset name')
@@ -104,3 +102,4 @@ if __name__ == "__main__":
         test_predictions_over_time(args)
     else:
         raise ValueError("mode %s is not supported." % args.mode)
+    

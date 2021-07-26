@@ -1,4 +1,5 @@
 import math
+import matplotlib.pyplot as plt
 from time import time
 import torch
 import torch.nn.functional as F
@@ -12,7 +13,7 @@ import datetime
 from copy import copy, deepcopy
 from model import CNN_RNN, RNN
 import random
-from utils import get_X_Y, build_path
+from utils import get_X_Y, build_path, get_git_revision_hash
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import pandas as pd
@@ -107,14 +108,12 @@ def loss_fn(pred, Y, args, mode="logcosh"):
     return loss
 
 
-# Note: if this is called with mode "Test", the metrics will be updated IN ALL CASES.
-# Only call this with mode "Test" if the validation loss improved for this epoch.
+# Note: change so that metrics are always updated!
 def update_metrics(rmse, r2, corr, mode):
     if mode == "Val":
-        if rmse < best_val['rmse']:
-            best_val['rmse'] = rmse
-            best_val['r2'] = r2
-            best_val['corr'] = corr
+        best_val['rmse'] = rmse
+        best_val['r2'] = r2
+        best_val['corr'] = corr
     elif mode == "Test":
         # if rmse < best_test['rmse']:
         best_test['rmse'] = rmse
@@ -211,7 +210,7 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
     print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
         tot_loss/n_batch, metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], metrics_all['mae']['avg'], metrics_all['mape']['avg'])
     )
-    return metrics_all['rmse']['avg'], results
+    return metrics_all, results
 
 
 def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
@@ -271,8 +270,6 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
     #     tot_loss/n_batch, tot_rmse/n_batch, tot_r2/n_batch, tot_corr/n_batch, tot_mae/n_batch, tot_mape/n_batch)
     # )
     print("********************")
-    update_metrics(metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], mode)
-
     if writer is not None:
         writer.add_scalar("{}/loss".format(mode), tot_loss/n_batch, epoch)
         writer.add_scalar("{}/rmse".format(mode), metrics_all['rmse']['avg'], epoch)
@@ -281,7 +278,7 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
         writer.add_scalar("{}/mae".format(mode), metrics_all['mae']['avg'], epoch)
         writer.add_scalar("{}/mape".format(mode), metrics_all['mape']['avg'], epoch)
 
-    return metrics_all['rmse']['avg'], results
+    return metrics_all, results
 
 def train(args):
     print('reading npy...')
@@ -352,6 +349,11 @@ def train(args):
 
     print('building network...')
 
+    # Record Git commit and command used
+    with open(os.path.join(model_dir, "command.txt"), 'w') as f:
+        f.write("Git commit: " + get_git_revision_hash() + "\n")
+        f.write("Command: " + " ".join(sys.argv))
+
     #building the model 
     if args.model == "cnn_rnn":
         model = CNN_RNN(args).to(device)
@@ -379,11 +381,24 @@ def train(args):
 
 
     best_val_rmse = 1e9
+    train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
     for epoch in range(args.max_epoch):
-        train_rmse, train_results = train_epoch(args, model, device, train_loader, optimizer, epoch, writer)
-        val_rmse, val_results = val_epoch(args, model, device, val_loader, epoch, "Val", writer)
+        train_metrics, train_results = train_epoch(args, model, device, train_loader, optimizer, epoch, writer)
+        val_metrics, val_results = val_epoch(args, model, device, val_loader, epoch, "Val", writer)
+        test_metrics, test_results = val_epoch(args, model, device, test_loader, epoch, "Test", writer)
+
+        val_rmse = val_metrics['rmse']['avg']
+        train_rmse_list.append(train_metrics['rmse']['avg'])
+        val_rmse_list.append(val_metrics['rmse']['avg'])
+        test_rmse_list.append(test_metrics['rmse']['avg'])
+        train_r2_list.append(train_metrics['r2']['avg'])
+        val_r2_list.append(val_metrics['r2']['avg'])
+        test_r2_list.append(test_metrics['r2']['avg'])
+
+        # Only update metrics if validation RMSE improved
         if val_rmse < best_val_rmse:
-            test_rmse, test_results = val_epoch(args, model, device, test_loader, epoch, "Test", writer)
+            update_metrics(val_metrics['rmse']['avg'], val_metrics['r2']['avg'], val_metrics['corr']['avg'], mode="Val")
+            update_metrics(test_metrics['rmse']['avg'], test_metrics['r2']['avg'], test_metrics['corr']['avg'], mode="Test")
             best_val_rmse = val_rmse
             torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
             print('save model to', model_dir)
@@ -402,3 +417,34 @@ def train(args):
         print("BEST Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
         scheduler.step()
     
+    print("Command used:", " ".join(sys.argv))
+    print("Model dir:", model_dir)
+
+    # Plot RMSE over time
+    epoch_list = range(len(train_rmse_list))
+    plots = []
+    train_rmse_plot, = plt.plot(epoch_list, train_rmse_list, color='blue', label='Train RMSE (1981-' + str(args.test_year - 2) + ')')
+    val_rmse_plot, = plt.plot(epoch_list, val_rmse_list, color='orange', label='Validation RMSE (' + str(args.test_year - 1) + ')')
+    test_rmse_plot, = plt.plot(epoch_list, test_rmse_list, color='red', label='Test RMSE (' + str(args.test_year) + ')')
+    plots.append(train_rmse_plot)
+    plots.append(val_rmse_plot)
+    plots.append(test_rmse_plot)
+    plt.legend(handles=plots)
+    plt.xlabel('Epoch #')
+    plt.ylabel('RMSE')
+    plt.savefig(os.path.join(model_dir, "rmse.png"))
+    plt.close()
+
+    # Plot R2 over time
+    plots = []
+    train_r2_plot, = plt.plot(epoch_list, train_r2_list, color='blue', label='Train R^2 (1981-' + str(args.test_year - 2) + ')')
+    val_r2_plot, = plt.plot(epoch_list, val_r2_list, color='orange', label='Validation R^2 (' + str(args.test_year - 1) + ')')
+    test_r2_plot, = plt.plot(epoch_list, test_r2_list, color='red', label='Test R^2 (' + str(args.test_year) + ')')
+    plots.append(train_r2_plot)
+    plots.append(val_r2_plot)
+    plots.append(test_r2_plot)
+    plt.legend(handles=plots)
+    plt.xlabel('Epoch #')
+    plt.ylabel('R^2')
+    plt.savefig(os.path.join(model_dir, "r2.png"))
+    plt.close()

@@ -11,6 +11,13 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 MAP_FILE = "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/gz_2010_us_050_00_20m/"
 
+def plot_histogram(values, range, column_name, year,
+                   output_dir='/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/figures/python'):
+    values = values[~np.isnan(values)]  # Remove NaN
+    plt.hist(values, range=(column_mins[yield_idx], column_maxs[yield_idx]))
+    plt.savefig(os.path.join(output_dir, column_name + "_" + str(year) + "_histogram.png"))
+    plt.close()
+
 
 # Plot a single feature on a map (used for debugging)
 def plot_county_data(counties, values, column_name, year,
