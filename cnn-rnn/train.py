@@ -63,7 +63,7 @@ def eval(pred, Y, args):
         # MSE
         metrics['mse'][output_name] = np.mean((pred_i-Y_i)**2)
         # MAPE
-        metrics['mape'][output_name] = np.mean(np.abs((Y_i - pred_i) / Y_i))
+        metrics['mape'][output_name] = np.mean(np.abs((Y_i - pred_i) / (Y_i + 1e-5)))
 
     # For each metric, average over all outputs
     for metric_name in metrics:

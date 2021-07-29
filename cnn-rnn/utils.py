@@ -172,15 +172,11 @@ def get_X_Y(data, args, device):
 
 
     # Compute average of each output
-    means = []
-    stds = []
-    for i in range(Y_train.shape[2]):
-        Y_i = Y_train[:, -1, i]
-        Y_i = Y_i[~np.isnan(Y_i)]
-        means.append(np.mean(Y_i))
-        stds.append(np.std(Y_i))
-    args.means = torch.tensor(means, device=device)
-    args.stds = torch.tensor(stds, device=device)
+    Y_mean = np.nanmean(Y[known_years], axis=0, keepdims=True)
+    Y_std = np.nanstd(Y[known_years], axis=0, keepdims=True)
+    args.means = torch.tensor(Y_mean, device=device)
+    args.stds = torch.tensor(Y_std, device=device)
+    print("Y (output) means", args.means, "stds", args.stds)
 
     # Create dictionaries mapping from (county + year) to features/labels
     X_dict = {}
