@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import subprocess
 import visualization_utils
+import warnings
 
 def build_path(path):
     path_levels = path.split('/')
@@ -19,7 +20,7 @@ def build_path(path):
 def get_git_revision_hash():
     return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
 
-def get_X_Y(data, args):
+def get_X_Y(data, args, device):
     if args.data_dir == "soybean_data_full.npz":
         # Old dataset (given from CNN-RNN paper)
         counties = data[:, 0].astype(int)
@@ -47,39 +48,94 @@ def get_X_Y(data, args):
     print("X shape", X.shape)
     print("Y shape", Y.shape)
 
-    # Fill in gaps for progress data
-    assert ((args.progress_indices[-1] + 1 - args.progress_indices[0]) % args.time_intervals == 0)
-    # Loop through each example
-    for i in range(X.shape[0]):
-        # Loop through each progress variable (which is itself a range of "args.time_intervals" variables)
-        for progress_var_start in range(args.progress_indices[0], args.progress_indices[-1] + 1, args.time_intervals):
-            current_progress = 0
-            for progress_idx in range(progress_var_start, progress_var_start + args.time_intervals):
-                if np.isnan(X[i, progress_idx]):
-                    X[i, progress_idx] = current_progress
-                else:
-                    current_progress = X[i, progress_idx]
-
-    # Sanity check: plot a feature for a given year/week
-    print("Random checks")
-    X_iowa = X[(counties == 19065) & (years == 1993)]
-    print(X_iowa[0, 1456:1508])
-    print(X_iowa[0, 1508:1560])
-    print(X_iowa[0, 1560:1612])
-
-    YEAR = 1981
-    WEEK = 22
-    COLUMN_IDX = (1464+WEEK-1) - 8
-    COLUMN_NAME = "corn_PROGRESS, MEASURED IN PCT PLANTED_week_" + str(WEEK)
-    # visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME, YEAR)
-
-    # For now, replace all NA with 0.
-    X = np.nan_to_num(X)
-
     # Compute the unique years and counties
     min_year = int(min(years))
     max_year = int(max(years))
     county_set = sorted(list(set(counties)))
+
+    # Compute average yield of each year (to detect underlying yearly trends)
+    avg_Y = {}
+    avg_Y_lst = []
+    for year in range(min_year, max_year+1):
+        avg_Y[year] = np.nanmean(Y[years == year, :], axis=0)
+        avg_Y_lst.append(avg_Y[year])
+    '''mean_Y = np.mean(avg_Y_lst)
+    std_Y = np.std(avg_Y_lst)
+    for year in range(min_year, max_year+1):
+        avg_Y[year] = (avg_Y[year] - mean_Y) / std_Y'''
+    avg_Y[min_year-1] = avg_Y[min_year]
+
+    # For each row in X, get the average yield of the previous year, and add this as a column of X
+    Ybar = []
+    for year in years:
+        Ybar.append(avg_Y[year-1])
+    Ybar = np.array(Ybar)  #.reshape(-1, 1) - removed this because we may have multiple outputs
+    X = np.concatenate((X, Ybar), axis=1)
+
+    # Compute the mean and standard deviation of each feature (over non-NaN values), over the train years.
+    # We will use these to standardize the features later.
+    # If the feature is NaN everywhere, return 0 for mean/std (the "nan_to_num" function does this)
+    known_years = data[:, 1] < (args.test_year-1)
+    with warnings.catch_warnings():  # Supress warning about columns being NaN
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        X_mean = np.nanmean(X[known_years], axis=0, keepdims=True)
+        X_std = np.nanstd(X[known_years], axis=0, keepdims=True)
+
+        # HACK: If the standard deviation of a feature on train set is 0 (e.g. all
+        # values are the same), then standardizing anything apart from that value
+        # will produce a super extreme z-score. So just replace those standard 
+        # deviations with 1. Also, if the mean/std are NaN, replace with 0 and 1. 
+        X_std[(X_std < 1e-6) | np.isnan(X_std)] = 1
+        X_mean[np.isnan(X_mean)] = 0
+
+    # Check stds
+    np.set_printoptions(threshold=np.inf)
+    # print("X_std")
+    # print(np.squeeze(X_std))
+    # print('============================== :):):):)')
+    # print(np.argwhere(X_std < 1e-7))
+    # exit(1)
+
+    # Standardize each feature (column of X)
+    X = (X - X_mean) / (X_std + 1e-10)
+
+    # Check for extreme values in X (after standardization)
+    indices = np.argwhere((X > 100) | (X < -100))
+    if indices.shape[0] == 0:
+        print('no extreme values in X :)')
+    else:
+        for i in range(indices.shape[0]):
+            row, col = indices[i, 0], indices[i, 1]
+            print("Extreme value indices", row, col + 7, "- yr", years[row])
+
+    # For now, replace all NA with 0.
+    X = np.nan_to_num(X)
+
+    # # Fill in gaps for progress data
+    # assert ((args.progress_indices[-1] + 1 - args.progress_indices[0]) % args.time_intervals == 0)
+    # # Loop through each example
+    # for i in range(X.shape[0]):
+    #     # Loop through each progress variable (which is itself a range of "args.time_intervals" variables)
+    #     for progress_var_start in range(args.progress_indices[0], args.progress_indices[-1] + 1, args.time_intervals):
+    #         current_progress = 0
+    #         for progress_idx in range(progress_var_start, progress_var_start + args.time_intervals):
+    #             if np.isnan(X[i, progress_idx]):
+    #                 X[i, progress_idx] = current_progress
+    #             else:
+    #                 current_progress = X[i, progress_idx]
+
+    # # Sanity check: plot a feature for a given year/week
+    # print("Random checks")
+    # X_iowa = X[(counties == 19065) & (years == 1993)]
+    # print(X_iowa[0, 1456:1508])
+    # print(X_iowa[0, 1508:1560])
+    # print(X_iowa[0, 1560:1612])
+
+    # YEAR = 1981
+    # WEEK = 22
+    # COLUMN_IDX = (1464+WEEK-1) - 8
+    # COLUMN_NAME = "corn_PROGRESS, MEASURED IN PCT PLANTED_week_" + str(WEEK)
+    # # visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME, YEAR)
 
 
     # # TODO Impute missing X values. First compute the mean feature vector for every county; if no data exists for that county, replace it with mean feature for the year (across all counties)
@@ -111,37 +167,20 @@ def get_X_Y(data, args):
     # print(np.argwhere(np.isnan(X)))
     # exit(0)
 
-
-
-    # Compute average yield of each year (to detect underlying yearly trends)
-    avg_Y = {}
-    avg_Y_lst = []
-    for year in range(min_year, max_year+1):
-        avg_Y[year] = np.nanmean(Y[years == year, :], axis=0)
-        avg_Y_lst.append(avg_Y[year])
-    '''mean_Y = np.mean(avg_Y_lst)
-    std_Y = np.std(avg_Y_lst)
-    for year in range(min_year, max_year+1):
-        avg_Y[year] = (avg_Y[year] - mean_Y) / std_Y'''
-    avg_Y[min_year-1] = avg_Y[min_year]
-
-    # For each row in X, get the average yield of the previous year, and add this as a column of X
-    Ybar = []
-    for year in years:
-        Ybar.append(avg_Y[year-1])
-    Ybar = np.array(Ybar)  #.reshape(-1, 1) - removed this because we may have multiple outputs
-    X = np.concatenate((X, Ybar), axis=1)
-
-    # For standardization purposes, only consider train years (e.g. the years before args.test_year - 1, which is the validation year)
-    known_years = data[:, 1] < (args.test_year-1)
-
-    # Standardize each feature (column of X)
-    X_mean = np.mean(X[known_years], axis=0, keepdims=True)
-    X_std = np.std(X[known_years], axis=0, keepdims=True)
-    X = (X - X_mean) / (X_std + 1e-10)
-
     # Sanity check: plot map of feature after standardizing
     # visualization_utils.plot_county_data(counties[years == YEAR], X[years == YEAR, COLUMN_IDX], COLUMN_NAME + "_std", YEAR)
+
+
+    # Compute average of each output
+    means = []
+    stds = []
+    for i in range(Y_train.shape[2]):
+        Y_i = Y_train[:, -1, i]
+        Y_i = Y_i[~np.isnan(Y_i)]
+        means.append(np.mean(Y_i))
+        stds.append(np.std(Y_i))
+    args.means = torch.tensor(means, device=device)
+    args.stds = torch.tensor(stds, device=device)
 
     # Create dictionaries mapping from (county + year) to features/labels
     X_dict = {}

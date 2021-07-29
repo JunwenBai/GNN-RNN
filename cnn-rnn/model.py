@@ -17,7 +17,13 @@ class CNN_RNN(nn.Module):
         self.progress_indices = args.progress_indices
         self.num_weather_vars = args.num_weather_vars  # Number of variables in weather data (for each day)
         self.num_soil_vars = args.num_soil_vars
-        self.num_management_vars_this_crop = int(len(args.progress_indices) / args.time_intervals)  # NOTE - only includes management vars for this specific crop
+        self.no_management = args.no_management
+        if self.no_management:
+            self.num_management_vars_this_crop = 0
+        else:
+            self.num_management_vars_this_crop = int(len(args.progress_indices) / args.time_intervals)  # NOTE - only includes management vars for this specific crop
+        print("num management vars being used", self.num_management_vars_this_crop)
+    
         self.n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
         self.n_s = args.soil_depths*args.num_soil_vars  # Original: 10*10, new: 6*20
         self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96, This includes management vars for ALL crops.
@@ -301,10 +307,14 @@ class CNN_RNN(nn.Module):
             X_s = self.s_fc(X_s) # [64*5, 40]
         else:
             X_w = X[:, :self.n_w].reshape(-1, self.num_weather_vars, self.time_intervals) # [64*5, num_weather_vars, time_intervals]
-            X_m = X[:, self.progress_indices].reshape(-1, self.num_management_vars_this_crop, self.time_intervals) # [64*5, num_management_vars_this_crop, time_intervals]
-            
+            if not self.no_management:
+                X_m = X[:, self.progress_indices].reshape(-1, self.num_management_vars_this_crop, self.time_intervals) # [64*5, num_management_vars_this_crop, time_intervals]
+            # print("X_M shape", X_m.shape)
             if self.combine_weather_and_management:
-                X_wm = torch.cat((X_w, X_m), dim=1)
+                if self.no_management:
+                    X_wm = X_w
+                else:
+                    X_wm = torch.cat((X_w, X_m), dim=1)
                 X_wm = self.wm_conv(X_wm).squeeze(-1) # [64*5, 256]
                 X_wm = self.wm_fc(X_wm) # [64*5, 80]
             else:

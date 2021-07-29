@@ -73,11 +73,14 @@ parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, 
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
 parser.add_argument('-share_conv_params', "--share_conv_parameters", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
 parser.add_argument('-combine_weather_and_management', "--combine_weather_and_management", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
+parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
 
 # ONLY used for test_predictions_over_time, if we're plotting predictions over time for a specific county and the test year.
 parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=int, help='County FIPS to plot (ONLY used for the "test_predictions_over_time" mode).')
 
 args = parser.parse_args()
+if args.no_management:
+    assert(args.combine_weather_and_management)
 
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
 args.output_idx = OUTPUT_INDICES[args.crop_type]

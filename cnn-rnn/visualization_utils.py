@@ -11,22 +11,21 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 MAP_FILE = "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/gz_2010_us_050_00_20m/"
 
-def plot_histogram(values, range, column_name, year,
-                   output_dir='/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/figures/python'):
+def plot_histogram(values, range, column_name, output_dir):
     values = values[~np.isnan(values)]  # Remove NaN
     plt.hist(values, range=range)
-    plt.savefig(os.path.join(output_dir, column_name + "_" + str(year) + "_histogram.png"))
+    plt.title(column_name)
+    plt.savefig(os.path.join(output_dir, "histogram_" + column_name + ".png"))
     plt.close()
 
 
 # Plot a single feature on a map (used for debugging)
-def plot_county_data(counties, values, column_name, year,
-                     output_dir='/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/figures/python'):
+def plot_county_data(counties, values, column_name, year, output_dir):
     
     # Create data frame mapping county FIPS to attribute value
     data_table = pd.DataFrame({'fips': counties, column_name: values})
-    print("Plotting county data")
-    print(data_table.head())
+    # print("Plotting county data")
+    # print(data_table.head())
 
     # Read county map from file, and compute county FIPS
     county_map = gpd.read_file(MAP_FILE)
@@ -55,8 +54,7 @@ def plot_county_data(counties, values, column_name, year,
 # column "fips" with the county ID, and there should be at most one row per county.
 # For each crop listed in "crop_types", results_df should have columns named 
 # "true_{crop}" and "predicted_{crop},"
-def plot_true_vs_predicted(results_df, crop_types, description,
-                           output_dir='/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/figures/python'):
+def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
 
     # Read county map from file, and compute county FIPS
     county_map = gpd.read_file(MAP_FILE)
@@ -71,6 +69,7 @@ def plot_true_vs_predicted(results_df, crop_types, description,
     # Plot maps of true and predicted yield
     for crop_type in crop_types:
         # Compute difference (predicted - true)
+        county_map.loc[county_map["true_" + crop_type].isnull(), "predicted_" + crop_type] = np.nan  # If true value is NaN, make prediction NaN so that maps look similar
         county_map["difference_" + crop_type] = county_map["predicted_" + crop_type] - county_map["true_" + crop_type]
 
         # Set up subplots
@@ -140,6 +139,11 @@ def plot_true_vs_predicted(results_df, crop_types, description,
         ax = axeslist.ravel()[idx]
         predicted = results_df["predicted_" + crop_type].to_numpy()
         true = results_df["true_" + crop_type].to_numpy()
+
+        # Remove rows where we don't have true label
+        not_nan = ~np.isnan(true)
+        predicted = predicted[not_nan]
+        true = true[not_nan]
 
         # Fit linear regression
         true = true.reshape(-1, 1)

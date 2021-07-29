@@ -227,6 +227,11 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
         predictions_std = model(X, Y)
         pred = predictions_std * args.stds + args.means
+        if (pred > 1e4).any():
+            print("Batch inputs", batch_inputs.shape, "Batch labels", batch_labels.shape, "Pred", batch_pred.shape)
+            print("Predictions", pred)
+            print("Counties that led to high predictions", counties[pred > 1e4])
+            exit(1)
 
         loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
                loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
@@ -303,18 +308,7 @@ def train(args):
 
     # data = np.load(args.data_dir) #load data from the data_dir
 
-    X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test = get_X_Y(data, args)
-
-    # Compute average of each output
-    means = []
-    stds = []
-    for i in range(Y_train.shape[2]):
-        Y_i = Y_train[:, -1, i]
-        Y_i = Y_i[~np.isnan(Y_i)]
-        means.append(np.mean(Y_i))
-        stds.append(np.std(Y_i))
-    args.means = torch.tensor(means, device=device)
-    args.stds = torch.tensor(stds, device=device)
+    X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test = get_X_Y(data, args, device)
 
 
     # Create Tensors, datasets, dataloaders
@@ -338,8 +332,11 @@ def train(args):
         args.model, args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.length, args.seed)
     if args.share_conv_parameters:
         param_setting += "_share-params"
-    if args.combine_weather_and_management:
+    if args.no_management:
+        param_setting += "_no-management"
+    elif args.combine_weather_and_management:
         param_setting += "_combine-w-m"
+    
 
     # Directories to store TensorBoard summary, model params, and results
     summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
