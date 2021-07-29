@@ -55,7 +55,6 @@ def get_X_Y(data, args, device):
     min_year = int(min(years))
     max_year = int(max(years))
     county_set = sorted(list(set(counties)))
-    print("years", min_year, max_year)
 
     # Compute average yield of each year (to detect underlying yearly trends)
     avg_Y = {}
@@ -119,17 +118,12 @@ def get_X_Y(data, args, device):
     #                 current_progress = X[i, progress_idx]
 
 
-    # Compute average of each output (Y)
-    means = []
-    stds = []
-    for i in range(Y.shape[1]):
-        Y_i = Y[:, i]
-        Y_i = Y_i[~np.isnan(Y_i)]
-        means.append(np.mean(Y_i))
-        stds.append(np.std(Y_i))
-    args.means = torch.tensor(means, device=device)
-    args.stds = torch.tensor(stds, device=device)
-    print("Means", args.means, "Stds", args.stds)
+    # Compute average of each output
+    Y_mean = np.nanmean(Y[known_years], axis=0, keepdims=True)
+    Y_std = np.nanstd(Y[known_years], axis=0, keepdims=True)
+    args.means = torch.tensor(Y_mean, device=device)
+    args.stds = torch.tensor(Y_std, device=device)
+    print("Y (output) means", args.means, "stds", args.stds)
 
     # Create dictionaries mapping from (county + year) to features/labels
     X_dict = {}

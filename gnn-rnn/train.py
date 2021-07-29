@@ -8,12 +8,14 @@ from torch import nn, optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
+import pandas as pd
 import sys
 import os
 import datetime
 from copy import copy, deepcopy
 from model import SAGE_RNN
 import random
+import matplotlib.pyplot as plt
 from utils import get_X_Y, build_path, get_git_revision_hash
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
@@ -32,8 +34,10 @@ huber_fn = nn.SmoothL1Loss()
 best_test = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
+
+# TODO - currently only supports single label (predictions and Y are flattened)
 def eval(pred, Y):
-    pred, Y = pred.detach().cpu().numpy(), Y.detach().cpu().numpy()
+    pred, Y = pred.flatten().detach().cpu().numpy(), Y.flatten().detach().cpu().numpy()
 
     # Remove entries where Y is NA
     not_na = ~np.isnan(Y)
@@ -58,7 +62,7 @@ def eval(pred, Y):
     # MSE
     metrics['mse'] = np.mean((pred-Y)**2)
     # MAPE
-    metrics['mape'] = np.mean(np.abs((Y - pred) / Y))
+    metrics['mape'] = np.mean(np.abs((Y - pred) / (Y + 1e-5)))
 
     return metrics
 
@@ -114,9 +118,15 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
     for year in year_XY.keys():
         if year == args.test_year or year == args.test_year-1: 
             continue
+        X, Y, counties = year_XY[year]
+        year_avg_Y = (Y[~torch.isnan(Y)].mean() - args.means) / args.stds
+        print("Year", year, "avg Y", year_avg_Y)
+
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
             batch_labels_std = (batch_labels - args.means) / args.stds
+            batch_labels_std[torch.isnan(batch_labels_std)] = year_avg_Y
+
             #print(batch_inputs.shape, batch_labels.shape) # [711, 5, 431] [64, 5]
             blocks = [block.int().to(device) for block in blocks]
             batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
@@ -126,13 +136,13 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
                 print("Counties with nan")
                 print(counties[np.isnan(batch_pred.squeeze())])
                 print("Corresponding input")
-                print(yearXY[year][np.isnan(batch_pred.squeeze())])
+                print(year_XY[year][np.isnan(batch_pred.squeeze())])
 
             loss = loss_fn(batch_pred, batch_labels[:, -1])
             optimizer.zero_grad()
 
             all_pred.append(batch_pred)
-            all_Y.append(batch_labels)
+            all_Y.append(batch_labels[:, -1])
             metrics = eval(batch_pred, batch_labels[:, -1])
             tot_loss += loss.item()
             tot_rmse += metrics['rmse']
@@ -199,16 +209,21 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
     elif mode == "Test":
         year = args.test_year
 
+    X, Y, counties = year_XY[year]
+    year_avg_Y = (Y[~torch.isnan(Y)].mean() - args.means) / args.stds
+
     for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
         batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
         batch_labels_std = (batch_labels - args.means) / args.stds
+        batch_labels_std[torch.isnan(batch_labels_std)] = year_avg_Y
         blocks = [block.int().to(device) for block in blocks]
-        batch_pred = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
+
+        batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
         batch_pred = batch_pred_std * args.stds + args.means
         loss = loss_fn(batch_pred, batch_labels[:, -1])
 
         all_pred.append(batch_pred)
-        all_Y.append(batch_labels)
+        all_Y.append(batch_labels[:, -1])
         metrics = eval(batch_pred, batch_labels[:, -1])
         tot_loss += loss.item()
         tot_rmse += metrics['rmse']
@@ -221,11 +236,12 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
         # year (so that we can produce maps later)
         result_df_dict = {"fips": batch_counties.detach().cpu().numpy().astype(int).tolist(),
                           "year": [year] * batch_counties.shape[0]}
-        for i in range(batch_labels.shape[1]):
+        for i in range(batch_labels.shape[2]):
             output_name = args.output_names[i]
             result_df_dict["predicted_" + output_name] = batch_pred[:, i].detach().cpu().numpy().tolist()
-            result_df_dict["true_" + output_name] = batch_labels[:, i].detach().cpu().numpy().tolist()
+            result_df_dict["true_" + output_name] = batch_labels[:, -1, i].detach().cpu().numpy().tolist()
         result_dfs.append(pd.DataFrame(result_df_dict))
+        print(result_dfs[-1].head())
 
     results = pd.concat(result_dfs)
 
@@ -248,10 +264,6 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
         writer.add_scalar("{}/corr".format(mode), tot_corr/n_batch, epoch)
         writer.add_scalar("{}/mae".format(mode), tot_mae/n_batch, epoch)
         writer.add_scalar("{}/mape".format(mode), tot_mape/n_batch, epoch)
-
-    if mode == "Test":
-        print("Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
-        print("Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
 
     return metrics_all, results
 
@@ -305,13 +317,21 @@ def train(args):
 
     summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
     model_dir = 'model/{}/{}'.format(args.dataset, param_setting)
+    results_dir = 'results/{}/{}'.format(args.dataset, param_setting)
     build_path(summary_dir)
     build_path(model_dir)
+    build_path(results_dir)
     writer = SummaryWriter(log_dir=summary_dir)
 
-    print('building network...')
+    # Summary csv file of all results. Create this if it doesn't exist
+    results_summary_file = os.path.join('results/results_summary.csv')
+    if not os.path.isfile(results_summary_file):
+        with open(results_summary_file, mode='w') as f:
+            csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr'])
 
     #building the model
+    print('building network...')
     in_dim = year_XY[2000][0].shape[-1]
     out_dim = 1
     model = SAGE_RNN(args, in_dim, out_dim).to(device)
@@ -360,9 +380,9 @@ def train(args):
         if val_rmse < best_val_rmse:
             update_metrics(val_metrics['rmse'], val_metrics['r2'], val_metrics['corr'], "Val")
             update_metrics(test_metrics['rmse'], test_metrics['r2'], test_metrics['corr'], "Test")
+            best_val_rmse = val_rmse
 
             # Save model to file
-            best_val_rmse = val_rmse
             torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
             print('save model to', model_dir)
 

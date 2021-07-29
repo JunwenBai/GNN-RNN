@@ -26,7 +26,7 @@ class CNN(nn.Module):
         self.n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
         self.n_s = args.soil_depths*args.num_soil_vars  # Original: 10*10, new: 6*20
         self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96, This includes management vars for ALL crops.
-        self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+6
+        self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+1
 
         print("Processing weather and management data in same CNN!")
         if args.time_intervals == 52:  # Weekly data
@@ -96,19 +96,18 @@ class CNN(nn.Module):
         )
 
     def forward(self, X):
-        n_batch, n_feat = X.shape # [675, 431]
+        n_batch, n_feat = X.shape # [675, 6315]
         X_w = X[:, :self.n_w].reshape(-1, self.num_weather_vars, self.time_intervals) # [675, num_weather_vars, time_intervals]
-        
         if self.no_management:
             X_wm = X_w
         else:
             X_m = X[:, self.progress_indices].reshape(-1, self.num_management_vars_this_crop, self.time_intervals) # [675, num_management_vars_this_crop, time_intervals]
             X_wm = torch.cat((X_w, X_m), dim=1)
 
-        X_wm = self.wm_conv(X_wm).squeeze(-1) # [675, 256]
+        X_wm = self.wm_conv(X_wm).squeeze(-1) # [675, 512]
         X_wm = self.wm_fc(X_wm) # [675, 80]
 
-        X_soil = X[:, self.n_w:self.n_w+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths)  # [675*10, 1, 10]
+        X_soil = X[:, self.n_w:self.n_w+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths)  # [675*10, num_soil_vars, soil_depths]
         X_s = self.s_conv(X_soil).squeeze(-1) # [675, 64]
         X_s = self.s_fc(X_s) # [675, 40]
 
@@ -144,13 +143,11 @@ class SAGE_RNN(nn.Module):
         n_batch, n_seq, n_outputs = y.shape
         y_pad = torch.zeros(n_batch, n_seq+1, n_outputs).to(y.device)
         y_pad[:, 1:] = y
-        y_pad[torch.isnan(y_pad)] = 0.
-        # print("x:", x.shape) # [711, 5, 431]
-        # print("y_pad:", y_pad.shape) # [711, 5]
+        # print("x:", x.shape) # [675, 5, 6315]
+        # print("y_pad:", y_pad.shape) # [675, 5, 1]
         hs = []
         for i in range(n_seq+1):
-            h = self.cnn(x[:, i, :]) # [711, 431]
-            # print('h at start', h.shape)
+            h = self.cnn(x[:, i, :]) # [675, 127]
             for l, (layer, block) in enumerate(zip(self.layers, blocks)):
                 # We need to first copy the representation of nodes on the RHS from the
                 # appropriate nodes on the LHS.
@@ -183,9 +180,9 @@ class SAGE_RNN(nn.Module):
             print("y")
             print(y)
             exit(1)
-        #print(out.shape) # [5, 64, 64]
-        #print(last_h.shape) # [1, 64, 64]
-        #print(last_c.shape) # [1, 64, 64]
+        # print(out.shape) # [5, 64, 64]
+        # print(last_h.shape) # [1, 64, 64]
+        # print(last_c.shape) # [1, 64, 64]
         pred = self.regressor(out[-1]) # [64, 1]
 
         return pred
@@ -203,6 +200,7 @@ class SAGE_RNN(nn.Module):
         # Therefore, we compute the representation of all nodes layer by layer.  The nodes
         # on each layer are of course splitted in batches.
         # TODO: can we standardize this?
+        print('======================= Inference!!! =========================')
         nodes = th.arange(g.number_of_nodes())
         for l, layer in enumerate(self.layers):
             y = th.zeros(g.number_of_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes)
