@@ -33,10 +33,9 @@ best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
 # pred, Y assumed to be 2D: [examples x outputs]
 def eval(pred, Y, args):
-    # Standardize based on mean/std of each output (crop type)
-    # if isinstance(Y, Tensor):
-    Y = (Y - args.means) / args.stds
-    pred = (pred - args.means) / args.stds
+    # Standardize based on mean/std of each output (crop type). NOTE - ignore this for now
+    # Y = (Y - args.means) / args.stds
+    # pred = (pred - args.means) / args.stds
     pred, Y = pred.detach().cpu().numpy(), Y.detach().cpu().numpy()
     metric_names = ['rmse', 'r2', 'corr', 'mae', 'mse', 'mape']
     metrics = {metric_name : {} for metric_name in metric_names}
@@ -76,11 +75,12 @@ def eval(pred, Y, args):
 def loss_fn(pred, Y, args, mode="logcosh"):
     loss = 0
 
-    # Standardize based on mean/std of each output (crop type)
     Y = torch.reshape(Y, (-1, Y.shape[-1]))
     pred = torch.reshape(pred, (-1, pred.shape[-1]))
-    Y = (Y - args.means) / args.stds
-    pred = (pred - args.means) / args.stds
+
+    # Standardize based on mean/std of each output (crop type) - ignore for now
+    # Y = (Y - args.means) / args.stds
+    # pred = (pred - args.means) / args.stds
 
     # Compute loss for each output (crop type)
     for i in range(Y.shape[-1]):

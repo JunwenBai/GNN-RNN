@@ -27,7 +27,7 @@ class CNN_RNN(nn.Module):
         self.n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
         self.n_s = args.soil_depths*args.num_soil_vars  # Original: 10*10, new: 6*20
         self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96, This includes management vars for ALL crops.
-        self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+6
+        self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+1
 
         if args.share_conv_parameters:  # Each variable shares same CNN parameters
             if args.time_intervals == 52:  # weekly data
