@@ -17,6 +17,7 @@ from utils import get_X_Y, build_path, get_git_revision_hash
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import pandas as pd
+import matplotlib.pyplot as plt
 import dgl
 import scipy.sparse as sp
 sys.path.append('../cnn-rnn')  # HACK
@@ -35,7 +36,7 @@ best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 # TODO - currently only supports a single label/output variable
 def eval(pred, Y):
     pred, Y = pred.flatten().detach().cpu().numpy(), Y.flatten().detach().cpu().numpy()
-    
+
     # Remove entries where Y is NA
     not_na = ~np.isnan(Y)
     pred = pred[not_na]
