@@ -227,11 +227,6 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
         predictions_std = model(X, Y)
         pred = predictions_std * args.stds + args.means
-        if (pred > 1e4).any():
-            print("Batch inputs", batch_inputs.shape, "Batch labels", batch_labels.shape, "Pred", batch_pred.shape)
-            print("Predictions", pred)
-            print("Counties that led to high predictions", counties[pred > 1e4])
-            exit(1)
 
         loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
                loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
