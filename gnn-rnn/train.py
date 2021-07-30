@@ -263,11 +263,10 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
     all_Y = torch.cat(all_Y, dim=0)
     metrics_all = eval(all_pred, all_Y)
 
-
-
+    n_batch = batch_idx+1
     #print("###### Overall Validation metrics")
     print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
-        tot_loss/n_batch, metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], metrics_all['mae']['avg'], metrics_all['mape']['avg'])
+        tot_loss/n_batch, metrics_all['rmse'], metrics_all['r2'], metrics_all['corr'], metrics_all['mae'], metrics_all['mape'])
     )
     print("********************")
 
