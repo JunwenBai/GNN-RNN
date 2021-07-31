@@ -206,60 +206,61 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
     elif mode == "Test":
         year = args.test_year
 
-    for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
-        batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
-        blocks = [block.int().to(device) for block in blocks]
-        batch_pred_std = model(blocks, batch_inputs)  #.squeeze(-1)
-        batch_pred = batch_pred_std * args.stds + args.means
-        if (batch_pred > 1e4).any():
-            print("Batch inputs", batch_inputs.shape, "Batch labels", batch_labels.shape, "Pred", batch_pred.shape, "Counties", batch_counties.shape)
-            print("Predictions", batch_pred)
-            print("Counties that led to high predictions", batch_counties[(batch_pred > 1e4).squeeze()])
-            # exit(1)
+    with torch.no_grad():
+        for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
+            batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
+            blocks = [block.int().to(device) for block in blocks]
+            batch_pred_std = model(blocks, batch_inputs)  #.squeeze(-1)
+            batch_pred = batch_pred_std * args.stds + args.means
+            if (batch_pred > 1e4).any():
+                print("Batch inputs", batch_inputs.shape, "Batch labels", batch_labels.shape, "Pred", batch_pred.shape, "Counties", batch_counties.shape)
+                print("Predictions", batch_pred)
+                print("Counties that led to high predictions", batch_counties[(batch_pred > 1e4).squeeze()])
+                # exit(1)
 
-        loss = loss_fn(batch_pred, batch_labels)
+            loss = loss_fn(batch_pred, batch_labels)
 
-        all_pred.append(batch_pred)
-        all_Y.append(batch_labels)
-        metrics = eval(batch_pred, batch_labels)
-        tot_loss += loss.item()
-        tot_rmse += metrics['rmse']
-        tot_r2 += metrics['r2']
-        tot_corr += metrics['corr']
-        tot_mae += metrics['mae']
-        tot_mape += metrics['mape']
+            all_pred.append(batch_pred)
+            all_Y.append(batch_labels)
+            metrics = eval(batch_pred, batch_labels)
+            tot_loss += loss.item()
+            tot_rmse += metrics['rmse']
+            tot_r2 += metrics['r2']
+            tot_corr += metrics['corr']
+            tot_mae += metrics['mae']
+            tot_mape += metrics['mape']
 
-        # Create a dataframe with true vs. predicted yield for each county in the validation
-        # year (so that we can produce maps later)
-        result_df_dict = {"fips": batch_counties.detach().cpu().numpy().astype(int).tolist(),
-                          "year": [year] * batch_counties.shape[0]}
-        for i in range(batch_labels.shape[1]):
-            output_name = args.output_names[i]
-            result_df_dict["predicted_" + output_name] = batch_pred[:, i].detach().cpu().numpy().tolist()
-            result_df_dict["true_" + output_name] = batch_labels[:, i].detach().cpu().numpy().tolist()
-        result_dfs.append(pd.DataFrame(result_df_dict))
+            # Create a dataframe with true vs. predicted yield for each county in the validation
+            # year (so that we can produce maps later)
+            result_df_dict = {"fips": batch_counties.detach().cpu().numpy().astype(int).tolist(),
+                            "year": [year] * batch_counties.shape[0]}
+            for i in range(batch_labels.shape[1]):
+                output_name = args.output_names[i]
+                result_df_dict["predicted_" + output_name] = batch_pred[:, i].detach().cpu().numpy().tolist()
+                result_df_dict["true_" + output_name] = batch_labels[:, i].detach().cpu().numpy().tolist()
+            result_dfs.append(pd.DataFrame(result_df_dict))
 
-    results = pd.concat(result_dfs)
+        results = pd.concat(result_dfs)
 
-    # Calculate stats on all data
-    all_pred = torch.cat(all_pred, dim=0)
-    all_Y = torch.cat(all_Y, dim=0)
-    metrics_all = eval(all_pred, all_Y)
+        # Calculate stats on all data
+        all_pred = torch.cat(all_pred, dim=0)
+        all_Y = torch.cat(all_Y, dim=0)
+        metrics_all = eval(all_pred, all_Y)
 
-    n_batch = batch_idx+1
-    #print("###### Overall Validation metrics")
-    print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
-        tot_loss/n_batch, metrics_all['rmse'], metrics_all['r2'], metrics_all['corr'], metrics_all['mae'], metrics_all['mape'])
-    )
-    print("********************")
+        n_batch = batch_idx+1
+        #print("###### Overall Validation metrics")
+        print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
+            tot_loss/n_batch, metrics_all['rmse'], metrics_all['r2'], metrics_all['corr'], metrics_all['mae'], metrics_all['mape'])
+        )
+        print("********************")
 
-    if writer is not None:
-        writer.add_scalar("{}/loss".format(mode), tot_loss/n_batch, epoch)
-        writer.add_scalar("{}/rmse".format(mode), tot_rmse/n_batch, epoch)
-        writer.add_scalar("{}/r2".format(mode), tot_r2/n_batch, epoch)
-        writer.add_scalar("{}/corr".format(mode), tot_corr/n_batch, epoch)
-        writer.add_scalar("{}/mae".format(mode), tot_mae/n_batch, epoch)
-        writer.add_scalar("{}/mape".format(mode), tot_mape/n_batch, epoch)
+        if writer is not None:
+            writer.add_scalar("{}/loss".format(mode), tot_loss/n_batch, epoch)
+            writer.add_scalar("{}/rmse".format(mode), tot_rmse/n_batch, epoch)
+            writer.add_scalar("{}/r2".format(mode), tot_r2/n_batch, epoch)
+            writer.add_scalar("{}/corr".format(mode), tot_corr/n_batch, epoch)
+            writer.add_scalar("{}/mae".format(mode), tot_mae/n_batch, epoch)
+            writer.add_scalar("{}/mape".format(mode), tot_mape/n_batch, epoch)
 
     return metrics_all, results
 
