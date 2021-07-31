@@ -26,6 +26,7 @@ import dgl
 import scipy.sparse as sp
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("Device", device)
 sys.path.append('./')
 
 METRICS = {'rmse', 'r2', 'corr'}
@@ -71,8 +72,8 @@ def loss_fn(pred, Y, mode="logcosh"):
     not_na = ~torch.isnan(Y)
     pred = pred[not_na]
     Y = Y[not_na]
-    if Y.shape[0] < 1:
-        return torch.tensor(0)
+    # if Y.shape[0] < 1:
+    #     return torch.tensor(0)
 
     if mode == "huber":
         # huber loss
@@ -128,7 +129,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
 
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
-            if torch.isnan(batch_labels).all():
+            if torch.isnan(batch_labels[:, -1]).all():
                 continue
             batch_labels_std = (batch_labels - args.means) / args.stds
             batch_labels_std[torch.isnan(batch_labels_std)] = year_avg_Y
@@ -138,15 +139,19 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
             batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
             batch_pred = batch_pred_std * args.stds + args.means
 
-            if torch.isnan(batch_pred).any():
-                print("Counties with nan")
-                print(counties[np.isnan(batch_pred.squeeze())])
-                print("Corresponding input")
-                print(year_XY[year][np.isnan(batch_pred.squeeze())])
+            # if torch.isnan(batch_pred).any():
+            #     print("Counties with nan")
+            #     print(counties[np.isnan(batch_pred.squeeze())])
+            #     print("Corresponding input")
+            #     print(year_XY[year][np.isnan(batch_pred.squeeze())])
 
             loss = loss_fn(batch_pred, batch_labels[:, -1])
             optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            n_batch += 1
 
+            # Record values and metrics
             all_pred.append(batch_pred)
             all_Y.append(batch_labels[:, -1])
             metrics = eval(batch_pred, batch_labels[:, -1])
@@ -156,10 +161,6 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
             tot_corr += metrics['corr']
             tot_mae += metrics['mae']
             tot_mape += metrics['mape']
-
-            loss.backward()
-            optimizer.step()
-            n_batch += 1
 
             if n_batch % args.check_freq == 0:
                 print("### batch ", n_batch-1)
