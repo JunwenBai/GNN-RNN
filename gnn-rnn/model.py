@@ -126,10 +126,10 @@ class SAGE_RNN(nn.Module):
         self.n_layers = args.n_layers
         self.n_hidden = args.z_dim
         self.layers = nn.ModuleList()
-        self.layers.append(dglnn.SAGEConv(127, self.n_hidden, 'mean'))
+        self.layers.append(dglnn.SAGEConv(127, self.n_hidden, args.aggregator_type))
         for i in range(1, self.n_layers - 1):
-            self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, 'mean'))
-        self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, 'mean'))
+            self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, args.aggregator_type))
+        self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, args.aggregator_type))
         self.dropout = nn.Dropout(args.dropout)
 
         self.lstm = nn.LSTM(input_size=self.n_hidden+out_dim, hidden_size=self.n_hidden, num_layers=1)

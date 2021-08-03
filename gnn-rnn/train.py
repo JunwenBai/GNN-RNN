@@ -57,7 +57,10 @@ def eval(pred, Y):
     # R2
     metrics['r2'] = r2_score(Y, pred)
     # corr
-    metrics['corr'] = np.corrcoef(Y, pred)[0, 1]
+    if np.all(Y == Y[0]) or np.all(pred == pred[0]):  # If all predictions are the same, calculating correlation produces an error, so just set to 0
+        metrics['corr'] = 0
+    else:
+        metrics['corr'] = np.corrcoef(Y, pred)[0, 1]
     # MAE
     metrics['mae'] = MAE(Y, pred)
     # MSE
@@ -154,29 +157,24 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
             # Record values and metrics
             all_pred.append(batch_pred)
             all_Y.append(batch_labels[:, -1])
-            metrics = eval(batch_pred, batch_labels[:, -1])
+            metrics_batch = eval(batch_pred, batch_labels[:, -1])
             tot_loss += loss.item()
-            tot_rmse += metrics['rmse']
-            tot_r2 += metrics['r2']
-            tot_corr += metrics['corr']
-            tot_mae += metrics['mae']
-            tot_mape += metrics['mape']
 
             if n_batch % args.check_freq == 0:
                 print("### batch ", n_batch-1)
                 print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
-                    tot_loss/n_batch, tot_rmse/n_batch, tot_r2/n_batch, tot_corr/n_batch, tot_mae/n_batch, tot_mape/n_batch)
+                    loss.item(), metrics_batch['rmse'], metrics_batch['r2'], metrics_batch['corr'], metrics_batch['mae'], metrics_batch['mape'])
                 )
         
             if writer is not None:
                 lr = optimizer.param_groups[0]['lr']
-                writer.add_scalar("lr", lr, cur_step)
-                writer.add_scalar("Train/loss", tot_loss/n_batch, cur_step)
-                writer.add_scalar("Train/rmse", tot_rmse/n_batch, cur_step)
-                writer.add_scalar("Train/r2", tot_r2/n_batch, cur_step)
-                writer.add_scalar("Train/corr", tot_corr/n_batch, cur_step)
-                writer.add_scalar("Train/mae", tot_mae/n_batch, cur_step)
-                writer.add_scalar("Train/mape", tot_mape/n_batch, cur_step)
+            writer.add_scalar("lr", lr, cur_step)
+            writer.add_scalar("Train/loss", loss.item(), cur_step)
+            writer.add_scalar("Train/rmse", metrics_batch['rmse'], cur_step)
+            writer.add_scalar("Train/r2", metrics_batch['r2'], cur_step)
+            writer.add_scalar("Train/corr", metrics_batch['corr'], cur_step)
+            writer.add_scalar("Train/mae", metrics_batch['mae'], cur_step)
+            writer.add_scalar("Train/mape", metrics_batch['mape'], cur_step)
             cur_step += 1
 
             # Create a dataframe with true vs. predicted yield (so that we can produce maps later)
@@ -278,11 +276,11 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
 
         if writer is not None:
             writer.add_scalar("{}/loss".format(mode), tot_loss/n_batch, epoch)
-            writer.add_scalar("{}/rmse".format(mode), tot_rmse/n_batch, epoch)
-            writer.add_scalar("{}/r2".format(mode), tot_r2/n_batch, epoch)
-            writer.add_scalar("{}/corr".format(mode), tot_corr/n_batch, epoch)
-            writer.add_scalar("{}/mae".format(mode), tot_mae/n_batch, epoch)
-            writer.add_scalar("{}/mape".format(mode), tot_mape/n_batch, epoch)
+            writer.add_scalar("{}/rmse".format(mode), metrics_all['rmse'], epoch)
+            writer.add_scalar("{}/r2".format(mode), metrics_all['r2'], epoch)
+            writer.add_scalar("{}/corr".format(mode), metrics_all['corr'], epoch)
+            writer.add_scalar("{}/mae".format(mode), metrics_all['mae'], epoch)
+            writer.add_scalar("{}/mape".format(mode), metrics_all['mape'], epoch)
 
     return metrics_all, results
 
@@ -313,6 +311,7 @@ def train(args):
 
     year_XY = {}
     l = args.length
+    num_nan_distribution = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     for year in range(min_year+l-1, max_year+1):
         X_seqs = []
         Y_seqs = []
@@ -323,14 +322,20 @@ def train(args):
             for i in range(year-l+1, year+1):
                 X_seq.append(X_dict[county][i])
                 Y_seq.append(Y_dict[county][i])
+            
+            # Count number of NaN in Y
+            num_nan = sum(math.isnan(y) for y in Y_seq)
+            num_nan_distribution[num_nan] += 1
             X_seqs.append(X_seq)
             Y_seqs.append(Y_seq)
             counties.append(county)
         X_seqs, Y_seqs, counties = torch.tensor(X_seqs), torch.tensor(Y_seqs), torch.tensor(counties)
         year_XY[year] = (X_seqs, Y_seqs, counties)
 
-    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_sleep-{}_testyear-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.lrsteps, args.gamma, args.sleep, args.test_year, args.length, args.seed)
+    print("Number of nans")
+    print(num_nan_distribution)
+    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_len-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.length, args.seed)
     if args.no_management:
         param_setting += "_no-management"
 

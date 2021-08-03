@@ -302,8 +302,8 @@ def train(args):
         X, Y, counties = torch.tensor(X), torch.tensor(Y), torch.tensor(counties)
         year_XY[year] = (X, Y, counties)
 
-    param_setting = "bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.length, args.seed)
+    param_setting = "bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_aggregator-{}_len-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.aggregator_type, args.length, args.seed)
     if args.no_management:
         param_setting += "_no-management"
 

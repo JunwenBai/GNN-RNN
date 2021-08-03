@@ -61,6 +61,7 @@ parser.add_argument('-clip_grad', "--clip_grad", default=10.0, type=float, help=
 # GNN specific
 parser.add_argument('-n_layers', "--n_layers", default=2, type=int, help='GraphSage # of layers')
 parser.add_argument('-dropout', "--dropout", default=0.5, type=float, help='dropout')
+parser.add_argument('-aggregator_type', "--aggregator_type", default="mean", choices=["mean", "gcn", "pool", "lstm"])
 
 # Added: dataset params
 parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
