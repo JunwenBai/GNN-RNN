@@ -118,11 +118,119 @@ class CNN(nn.Module):
         return X_all
 
 
+
+class SingleYearRNN(nn.Module):
+
+    def __init__(self, args):
+        super(SingleYearRNN, self).__init__()
+
+        # Store dataset dimensions
+        self.no_management = args.no_management
+        if args.no_management:
+            self.num_management_vars_this_crop = 0
+        else:
+            self.num_management_vars_this_crop = int(len(args.progress_indices) / args.time_intervals)  # NOTE - only includes management vars for this specific crop
+        print("num management vars being used", self.num_management_vars_this_crop)
+    
+        self.n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
+        self.n_s = args.soil_depths*args.num_soil_vars  # Original: 10*10, new: 6*20
+        self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96, This includes management vars for ALL crops.
+        self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+1
+        self.z_dim = args.z_dim
+        self.output_dim = len(args.output_names)
+        self.progress_indices = args.progress_indices
+        self.time_intervals = args.time_intervals
+        self.num_weather_vars = args.num_weather_vars
+        self.num_soil_vars = args.num_soil_vars
+        self.soil_depths = args.soil_depths
+
+        if args.encoder_type == "lstm":
+            self.within_year_rnn = nn.LSTM(input_size=args.num_weather_vars+self.num_management_vars_this_crop,
+                                            hidden_size=self.z_dim,
+                                            num_layers=1,
+                                            batch_first=True,
+                                            dropout=1.-args.keep_prob)
+        elif args.encoder_type == "gru":
+            self.within_year_rnn = nn.GRU(input_size=args.num_weather_vars+self.num_management_vars_this_crop,
+                                            hidden_size=self.z_dim,
+                                            num_layers=1,
+                                            batch_first=True,
+                                            dropout=1.-args.keep_prob)
+        else:
+            raise ValueError("If using SingleYearRNN, args.encoder_type must be `lstm` or `gru`.")
+
+        self.wm_fc = nn.Sequential(
+            nn.Linear(self.z_dim, 80),
+            nn.ReLU(),
+        )
+
+        # Soil CNN
+        if args.soil_depths == 10:
+            self.s_conv = nn.Sequential(
+                nn.Conv1d(in_channels=self.num_soil_vars, out_channels=16, kernel_size=3, stride=1),
+                nn.ReLU(),
+                nn.AvgPool1d(2, 2),
+                nn.Conv1d(16, 32, 3, 1),
+                nn.ReLU(),
+                nn.Conv1d(32, 64, 2, 1),
+                nn.ReLU(),
+            )
+        elif args.soil_depths == 6:
+            self.s_conv = nn.Sequential(
+                nn.Conv1d(in_channels=self.num_soil_vars, out_channels=16, kernel_size=3, stride=1),
+                nn.ReLU(),
+                nn.Conv1d(16, 32, 3, 1),
+                nn.ReLU(),
+                nn.Conv1d(32, 64, 2, 1),
+                nn.ReLU(),
+            )
+        else:
+            raise ValueError("Don't know how to deal with a number of soil_depths that is not 6 or 10")
+        self.s_fc = nn.Sequential(
+            nn.Linear(64, 40),
+            nn.ReLU(),
+        )
+
+
+    def forward(self, X):
+        n_batch, n_feat = X.shape
+
+        # Extract the weather/management features we're using
+        X_w = X[:, :self.n_w]
+        if self.no_management:
+            X_wm = X_w
+        else:
+            X_m = X[:, self.progress_indices]
+            X_wm = torch.cat((X_w, X_m), dim=1)
+
+        # Reshape weather/management data into weekly time series,
+        # and pass through LSTM and fully-connected layers
+        X_wm = X_wm.reshape(n_batch, self.num_weather_vars + self.num_management_vars_this_crop, self.time_intervals)
+        X_wm = X_wm.permute((0, 2, 1))  # Permute dimensions to [batch_size, time_intervals, num_variables]
+        X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [128, z_dim]
+        X_wm = self.wm_fc(X_wm[:, -1, :])  # [128, 80]
+
+        # Process soil data
+        X_s = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(n_batch, self.num_soil_vars, self.soil_depths)
+        X_s = self.s_conv(X_s).squeeze(-1) # [64*5, 64]
+        X_s = self.s_fc(X_s) # [64*5, 40]
+
+        # Combine weather/management and soil representations, and extra variables. Pass them all through final regressor
+        X_extra = X[:, self.n_w+self.n_m+self.n_s:]
+        X = torch.cat((X_wm, X_s, X_extra), dim=1)  # [128, 80+40+n_extra]
+        return X
+
+
 class SAGE_RNN(nn.Module):
     def __init__(self, args, in_dim, out_dim):
         super(SAGE_RNN, self).__init__()
-        self.cnn = CNN(args)
-        
+        if args.encoder_type == "cnn":
+            self.encoder = CNN(args)
+        elif args.encoder_type == "lstm" or args.encoder_type == "gru":
+            self.encoder = SingleYearRNN(args)
+        else:
+            raise ValueError("encoder_type must be `cnn`, `lstm`, or `gru`")
+
         self.n_layers = args.n_layers
         self.n_hidden = args.z_dim
         self.layers = nn.ModuleList()
@@ -132,7 +240,7 @@ class SAGE_RNN(nn.Module):
         self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, args.aggregator_type))
         self.dropout = nn.Dropout(args.dropout)
 
-        self.lstm = nn.LSTM(input_size=self.n_hidden+out_dim, hidden_size=self.n_hidden, num_layers=1)
+        self.lstm = nn.LSTM(input_size=self.n_hidden, hidden_size=self.n_hidden, num_layers=1)  # TODO removed output_size from input_size
         self.regressor = nn.Sequential(
             nn.Linear(self.n_hidden, self.n_hidden//2),
             nn.ReLU(),
@@ -147,7 +255,7 @@ class SAGE_RNN(nn.Module):
         # print("y_pad:", y_pad.shape) # [675, 5, 1]
         hs = []
         for i in range(n_seq+1):
-            h = self.cnn(x[:, i, :]) # [675, 127]
+            h = self.encoder(x[:, i, :]) # [675, 127]
             for l, (layer, block) in enumerate(zip(self.layers, blocks)):
                 # We need to first copy the representation of nodes on the RHS from the
                 # appropriate nodes on the LHS.
@@ -161,7 +269,8 @@ class SAGE_RNN(nn.Module):
                 if l != len(self.layers):
                     h = F.relu(h)
                     h = self.dropout(h)
-            hs.append(torch.cat((h, y_pad[:, i, :]), 1)) # [n_batch, n_hidden+out_dim]
+            hs.append(h) # [n_batch, n_hidden+out_dim]
+            # hs.append(torch.cat((h, y_pad[:, i, :]), 1)) # [n_batch, n_hidden+out_dim]
             # hs.append(torch.cat((h, y_pad[:, i:i+1]), 1)) # [n_batch, n_hidden+out_dim]
         hs = torch.stack(hs, dim=0) # [5, n_batch, n_hidden+out_dim]
         if torch.isnan(hs).any():

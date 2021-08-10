@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import dgl
 import dgl.nn.pytorch as dglnn
+import tqdm
 
 class CNN(nn.Module):
     def __init__(self, args):
@@ -162,9 +163,10 @@ class SAGE(nn.Module):
         # Therefore, we compute the representation of all nodes layer by layer.  The nodes
         # on each layer are of course splitted in batches.
         # TODO: can we standardize this?
-        nodes = th.arange(g.number_of_nodes())
+        x = self.cnn(x) # [675, 96]
+        nodes = torch.arange(g.number_of_nodes())
         for l, layer in enumerate(self.layers):
-            y = th.zeros(g.number_of_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes)
+            y = torch.zeros(g.number_of_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes)
 
             for start in tqdm.trange(0, len(nodes), batch_size):
                 end = start + batch_size

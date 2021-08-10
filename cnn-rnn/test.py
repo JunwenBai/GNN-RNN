@@ -1,4 +1,5 @@
 import math
+import pandas as pd
 from time import time
 import torch
 import torch.nn.functional as F
@@ -12,9 +13,10 @@ import datetime
 from copy import copy, deepcopy
 from model import CNN_RNN, RNN
 import random
-from utils import get_X_Y, build_path
+from utils import get_X_Y, build_path, mask_end
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
+import visualization_utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sys.path.append('./')
@@ -25,47 +27,95 @@ huber_fn = nn.SmoothL1Loss()
 best_test = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
-def eval(pred, Y):
+# pred, Y assumed to be 2D: [examples x outputs]
+def eval(pred, Y, args):
+    # Standardize based on mean/std of each output (crop type). NOTE - ignore this for now
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
     pred, Y = pred.detach().cpu().numpy(), Y.detach().cpu().numpy()
-    metrics = {}
-    # RMSE
-    metrics['rmse'] = np.sqrt(np.mean((pred-Y)**2))
-    # R2
-    metrics['r2'] = r2_score(Y, pred)
-    # corr
-    metrics['corr'] = np.corrcoef(Y, pred)[0, 1]
-    # MAE
-    metrics['mae'] = MAE(Y, pred)
-    # MSE
-    metrics['mse'] = np.mean((pred-Y)**2)
-    # MAPE
-    metrics['mape'] = np.mean(np.abs((Y - pred) / Y))
+    metric_names = ['rmse', 'r2', 'corr', 'mae', 'mse', 'mape']
+    metrics = {metric_name : {} for metric_name in metric_names}
+
+    # Compute metrics for each output variable (crop type)
+    for idx in range(Y.shape[-1]): # in enumerate(args.output_names):
+        output_name = args.output_names[idx]
+        not_na = ~np.isnan(Y[:, idx])
+        Y_i = Y[not_na, idx]
+        pred_i = pred[not_na, idx]
+        if Y_i.shape[0] == 0:
+            continue
+
+        # RMSE
+        metrics['rmse'][output_name] = np.sqrt(np.mean((pred_i-Y_i)**2))
+        # R2
+        metrics['r2'][output_name] = r2_score(Y_i, pred_i)
+        # corr
+        if np.all(Y_i == Y_i[0]) or np.all(pred_i == pred_i[0]):  # If all predictions are the same, calculating correlation produces an error, so just set to 0
+            metrics['corr'][output_name] = 0
+        else:
+            metrics['corr'][output_name] = np.corrcoef(Y_i, pred_i)[0, 1]
+        # MAE
+        metrics['mae'][output_name] = MAE(Y_i, pred_i)
+        # MSE
+        metrics['mse'][output_name] = np.mean((pred_i-Y_i)**2)
+        # MAPE
+        metrics['mape'][output_name] = np.mean(np.abs((Y_i - pred_i) / (Y_i + 1e-5)))
+
+    # For each metric, average over all outputs
+    for metric_name in metrics:
+        metrics[metric_name]["avg"] = sum(metrics[metric_name].values()) / len(metrics[metric_name])
 
     return metrics
 
-def loss_fn(pred, Y, mode="logcosh"):
-    if mode == "huber":
-        # huber loss
-        loss = huber_fn(pred, Y)
-    elif mode == "logcosh":
-        # log cosh loss
-        err = Y - pred
-        loss = torch.mean(torch.log(torch.cosh(err + 1e-12)))
+# pred, Y can be 2D or 3D, but the last dimension is the "output" dimension. We take the average loss across all outputs.
+def loss_fn(pred, Y, args, mode="logcosh"):
+    loss = 0
+
+    Y = torch.reshape(Y, (-1, Y.shape[-1]))
+    pred = torch.reshape(pred, (-1, pred.shape[-1]))
+
+    # Standardize based on mean/std of each output (crop type)
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
+
+    # Compute loss for each output (crop type)
+    for i in range(Y.shape[-1]):
+        # Remove rows with NA label
+        not_na = ~torch.isnan(Y[:, i])
+        Y_i = Y[not_na, i]
+        pred_i = pred[not_na, i]
+        if Y_i.shape[0] == 0:
+            print("Entire column is NaN")
+            continue
+
+        if mode == "huber":
+            # huber loss
+            loss = huber_fn(pred_i, Y_i)
+        elif mode == "logcosh":
+            # log cosh loss
+            err = Y_i - pred_i
+            loss += torch.mean(torch.log(torch.cosh(err + 1e-12)))
+    loss = loss / Y.shape[-1]
+    if np.isnan(loss.item()):
+        print("Loss was nan :(")
+        print("True", Y)
+        print("Predicted", pred)
+        exit(1)
+ 
     return loss
 
+
+# Note: this was changed so that metrics are always updated!
 def update_metrics(rmse, r2, corr, mode):
     if mode == "Val":
-        if rmse < best_val['rmse']:
-            best_val['rmse'] = rmse
-            best_val['r2'] = r2
-            best_val['corr'] = corr
+        best_val['rmse'] = rmse
+        best_val['r2'] = r2
+        best_val['corr'] = corr
     elif mode == "Test":
-        if rmse < best_test['rmse']:
-            best_test['rmse'] = rmse
-            best_test['r2'] = r2
-            best_test['corr'] = corr
-
-
+        # if rmse < best_test['rmse']:
+        best_test['rmse'] = rmse
+        best_test['r2'] = r2
+        best_test['corr'] = corr
 
 
 def test_epoch(args, model, device, test_loader, mode="Val"):
@@ -73,50 +123,89 @@ def test_epoch(args, model, device, test_loader, mode="Val"):
     print(mode)
     print("********************")
     model.eval()
-    tot_loss, tot_rmse, tot_r2, tot_corr = 0., 0., 0., 0.
-    for batch_idx, (X, Y) in enumerate(test_loader):
-        X, Y = X.to(device), Y.to(device)
-        pred = model(X, Y)
-        loss = loss_fn(pred[:, :args.length-1], Y[:, :args.length-1]) * args.c1 + \
-               loss_fn(pred[:, -1], Y[:, -1]) * args.c2
+    tot_loss = 0.
+    result_dfs = []
+    all_pred = []
+    all_Y = []
+    for batch_idx, (X, Y, counties, years) in enumerate(test_loader):
+        X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
 
-        metrics = eval(pred[:, -1], Y[:, -1])
+        # To simulate early prediction, mask out data starting from the specified "validation_week"
+        X[:, -1, :] = mask_end(X[:, -1, :], args, args.validation_week, args.validation_week)
+
+        predictions_std = model(X)
+        pred = predictions_std * args.stds + args.means
+
+        loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
+               loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
         tot_loss += loss.item()
-        tot_rmse += metrics['rmse']
-        tot_r2 += metrics['r2']
-        tot_corr += metrics['corr']
+        all_pred.append(pred[:, -1, :])
+        all_Y.append(Y[:, -1, :])
+
+        # Create a dataframe with true vs. predicted yield for each county in the validation
+        # year (so that we can produce maps later)
+        result_df_dict = {"fips": counties.detach().cpu().numpy().astype(int).tolist(),
+                          "year": years.detach().cpu().numpy().astype(int).tolist()}
+        for i in range(Y.shape[2]):
+            output_name = args.output_names[i]
+            result_df_dict["predicted_" + output_name] = pred[:, -1, i].detach().cpu().numpy().tolist()
+            result_df_dict["true_" + output_name] = Y[:, -1, i].detach().cpu().numpy().tolist()
+        result_dfs.append(pd.DataFrame(result_df_dict))
+
+    results = pd.concat(result_dfs)
+
+    # Calculate stats on all data
+    all_pred = torch.cat(all_pred, dim=0)
+    all_Y = torch.cat(all_Y, dim=0)
+    metrics_all = eval(all_pred, all_Y, args)
 
     n_batch = batch_idx+1
-    #print("###### Overall Validation metrics")
-    print("loss: {}\nrmse: {}\t r2: {}\t corr: {}".format(
-        tot_loss/n_batch, tot_rmse/n_batch, tot_r2/n_batch, tot_corr/n_batch)
+
+    print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
+        tot_loss/n_batch, metrics_all['rmse']['avg'], metrics_all['r2']['avg'], metrics_all['corr']['avg'], metrics_all['mae']['avg'], metrics_all['mape']['avg'])
     )
     print("********************")
-    update_metrics(tot_rmse/n_batch, tot_r2/n_batch, tot_corr/n_batch, mode)
+    return metrics_all, results
 
-    #print("Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
-
-    return tot_rmse/n_batch
 
 def test(args):
     print('reading npy...')
     np.random.seed(args.seed) # set the random seed of numpy
     torch.manual_seed(args.seed)
-    raw_data = np.load(args.data_dir) #load data from the data_dir
-    data = raw_data['data']
-    
-    X_train, Y_train, X_val, Y_val, X_test, Y_test = get_X_Y(data, args)
+    torch.cuda.manual_seed(args.seed)
+
+    # Compute results directory
+    normalized_checkpoint_path = os.path.normpath(args.checkpoint_path)
+    normalized_checkpoint_path = normalized_checkpoint_path.split(os.sep)
+    results_dir = os.path.join("results", normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
+    print("RESULTS DIR", results_dir)
+
+    # Load data from the data_dir
+    print("Loading data from", args.data_dir)
+    if args.data_dir.endswith(".npz"):
+        raw_data = np.load(args.data_dir) 
+        data = raw_data['data']
+    elif args.data_dir.endswith(".npy"):
+        data = np.load(args.data_dir)
+    elif args.data_dir.endswith(".csv"):
+        data = np.genfromtxt(args.data_dir, dtype=float, delimiter=',')
+    else:
+        raise ValueError("--data_dir argument must end in .npz, .npy, or .csv")
+    print("Raw data shape", data.shape)
+
+    # Extract X/Y matrices from raw data
+    X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test = get_X_Y(data, args, device)
+
+    # Create Tensors, datasets, dataloaders
     X_train, X_val, X_test = torch.Tensor(X_train), torch.Tensor(X_val), torch.Tensor(X_test)
     Y_train, Y_val, Y_test = torch.Tensor(Y_train), torch.Tensor(Y_val), torch.Tensor(Y_test)
+    counties_train, counties_val, counties_test = torch.Tensor(counties_train), torch.Tensor(counties_val), torch.Tensor(counties_test)
+    years_train, years_val, years_test = torch.Tensor(years_train), torch.Tensor(years_val), torch.Tensor(years_test)
     print("test:", X_test.shape, Y_test.shape)
 
-    test_dataset = TensorDataset(X_test, Y_test)
+    test_dataset = TensorDataset(X_test, Y_test, counties_test, years_test)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=1)
-
-    n_train = len(X_train)
-    param_setting = "bs-{}_lr-{}_maxepoch-{}_testyear-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.test_year, args.length, args.seed)
-
+    
     #building the model 
     if args.model == "cnn_rnn":
         model = CNN_RNN(args).to(device)
@@ -127,5 +216,9 @@ def test(args):
     model.load_state_dict(torch.load(args.checkpoint_path))
     model.eval()
     
-    test_epoch(args, model, device, test_loader, "Test")
+    test_metrics, test_results = test_epoch(args, model, device, test_loader, "Test")
+    time_str = str(args.test_year) + "_week_" + str(args.validation_week)
+    test_results.to_csv(os.path.join(results_dir, "test_results_" + time_str + ".csv"), index=False)
+    visualization_utils.plot_true_vs_predicted(test_results, args.output_names, 
+                                               time_str + "_test", results_dir)
 

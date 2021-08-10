@@ -13,7 +13,7 @@ import datetime
 from copy import copy, deepcopy
 from model import SAGE
 import random
-from utils import get_X_Y, build_path, get_git_revision_hash
+from utils import get_X_Y, build_path, get_git_revision_hash, mask_end
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import pandas as pd
@@ -34,7 +34,9 @@ best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
 
 # TODO - currently only supports a single label/output variable
-def eval(pred, Y):
+def eval(pred, Y, args):
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
     pred, Y = pred.flatten().detach().cpu().numpy(), Y.flatten().detach().cpu().numpy()
 
     # Remove entries where Y is NA
@@ -125,6 +127,10 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
             if torch.isnan(batch_labels).all():
                 continue
 
+            # Randomly mask out some data from the end of the last year in the 5-year sequence,
+            # to force model to learn how to make early predictions
+            batch_inputs = mask_end(batch_inputs, args, args.train_week_start, args.time_intervals)
+
             #print(batch_inputs.shape, batch_labels.shape) # [675, 431] [64]
             blocks = [block.int().to(device) for block in blocks]
             batch_pred_std = model(blocks, batch_inputs)  #.squeeze(-1)
@@ -140,7 +146,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
 
             all_pred.append(batch_pred)
             all_Y.append(batch_labels)
-            metrics = eval(batch_pred, batch_labels)
+            metrics = eval(batch_pred, batch_labels, args)
             tot_loss += loss.item()
             tot_rmse += metrics['rmse']
             tot_r2 += metrics['r2']
@@ -183,7 +189,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
     # Calculate stats on all data
     all_pred = torch.cat(all_pred, dim=0)
     all_Y = torch.cat(all_Y, dim=0)
-    metrics_all = eval(all_pred, all_Y)
+    metrics_all = eval(all_pred, all_Y, args)
 
     print("\n###### Overall training metrics")
     print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
@@ -209,6 +215,10 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
     with torch.no_grad():
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
+
+            # To simulate early prediction, mask out data starting from the specified "validation_week"
+            batch_inputs = mask_end(batch_inputs, args, args.validation_week, args.validation_week)
+
             blocks = [block.int().to(device) for block in blocks]
             batch_pred_std = model(blocks, batch_inputs)  #.squeeze(-1)
             batch_pred = batch_pred_std * args.stds + args.means
@@ -222,7 +232,7 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
 
             all_pred.append(batch_pred)
             all_Y.append(batch_labels)
-            metrics = eval(batch_pred, batch_labels)
+            metrics = eval(batch_pred, batch_labels, args)
             tot_loss += loss.item()
             tot_rmse += metrics['rmse']
             tot_r2 += metrics['r2']
@@ -245,7 +255,7 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
         # Calculate stats on all data
         all_pred = torch.cat(all_pred, dim=0)
         all_Y = torch.cat(all_Y, dim=0)
-        metrics_all = eval(all_pred, all_Y)
+        metrics_all = eval(all_pred, all_Y, args)
 
         n_batch = batch_idx+1
         #print("###### Overall Validation metrics")
@@ -268,6 +278,7 @@ def train(args):
     print('reading npy...')
     np.random.seed(args.seed) # set the random seed of numpy
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
     raw_data = np.load(args.data_dir) #load data from the data_dir
     data = raw_data['data']
     
@@ -302,8 +313,8 @@ def train(args):
         X, Y, counties = torch.tensor(X), torch.tensor(Y), torch.tensor(counties)
         year_XY[year] = (X, Y, counties)
 
-    param_setting = "bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_aggregator-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.aggregator_type, args.length, args.seed)
+    param_setting = "gnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_aggregator-{}_trainweekstart-{}_len-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.aggregator_type, args.train_week_start, args.length, args.seed)
     if args.no_management:
         param_setting += "_no-management"
 
@@ -377,8 +388,9 @@ def train(args):
             best_val_rmse = val_rmse
 
             # Save model to file
-            torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
-            print('save model to', model_dir)
+            best_model_path = model_dir + '/model-' + str(epoch)
+            torch.save(model.state_dict(), best_model_path)
+            print('save model to', best_model_path)
 
             # Save raw results (true and predicted labels) to files
             train_results.to_csv(os.path.join(results_dir, "train_results.csv"), index=False)
@@ -405,14 +417,15 @@ def train(args):
         csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow([args.dataset, args.model, git_commit, command_string,
                              str(args.test_year - 1), best_val['rmse'], best_val['r2'], best_val['corr'],
-                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr']])
+                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr'], best_model_path])
 
     # Record Git commit and command used, along with final metrics
     with open(os.path.join(results_dir, "summary.txt"), 'w') as f:
         f.write("Algorithm: " + args.model + "\n")
         f.write("Dataset: " + args.dataset + "\n")
         f.write("Git commit: " + git_commit + "\n")
-        f.write("Command: " + command_string + "\n\n")
+        f.write("Command: " + command_string + "\n")
+        f.write("Final model path: " + best_model_path + "\n\n")
         f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
  

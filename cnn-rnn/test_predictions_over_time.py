@@ -108,7 +108,7 @@ def test_predictions_over_time(args):
     # Compute results directory
     normalized_checkpoint_path = os.path.normpath(args.checkpoint_path)
     normalized_checkpoint_path = normalized_checkpoint_path.split(os.sep)
-    visualizations_dir = os.path.join(results, normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
+    visualizations_dir = os.path.join("results", normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
     print("VIS DIR", visualizations_dir)
     exit(1)
     compute_and_plot_predictions(args, model, device, county_test_row, county_train_avg, np.squeeze(county_test_Y)[-1, :], visualizations_dir)

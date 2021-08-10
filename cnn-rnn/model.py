@@ -284,7 +284,7 @@ class CNN_RNN(nn.Module):
         )
 
 
-    def forward(self, X, Y):
+    def forward(self, X):
         n_batch, n_years, n_feat = X.shape
         X = X.reshape(-1, n_feat)
 
@@ -342,20 +342,28 @@ class CNN_RNN(nn.Module):
         return pred
 
 
-# TODO - n_w, n_s, n_m need to be updated! 
 class RNN(nn.Module):
 
     def __init__(self, args):
         super(RNN, self).__init__()
         print("The RNN is being used!")
-        exit(1)
+        # Store dataset dimensions
+        self.no_management = args.no_management
+        if args.no_management:
+            self.num_management_vars_this_crop = 0
+        else:
+            self.num_management_vars_this_crop = int(len(args.progress_indices) / args.time_intervals)  # NOTE - only includes management vars for this specific crop
+        print("num management vars being used", self.num_management_vars_this_crop)
+    
+        self.n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
+        self.n_s = args.soil_depths*args.num_soil_vars  # Original: 10*10, new: 6*20
+        self.n_m = args.time_intervals*args.num_management_vars # Original: 14, new: 52*96, This includes management vars for ALL crops.
+        self.n_extra = args.num_extra_vars + len(args.output_names) # Original: 4+1, new: 6+1
+        self.n = self.n_w + self.n_s + self.num_management_vars_this_crop*args.time_intervals + self.n_extra
         self.z_dim = args.z_dim
-        self.n_w = 52*6
-        self.n_s = 10*10
-        self.n_m = 14
-        self.n_extra = 5
-        self.n = self.n_w + self.n_s + self.n_m + self.n_extra
-        # weather
+        self.progress_indices = args.progress_indices
+
+        # Pass flattened weather/soil/management data through MLP
         self.fc = nn.Sequential(
             nn.Linear(self.n, self.z_dim), 
             nn.ReLU(),
@@ -365,25 +373,41 @@ class RNN(nn.Module):
 
         self.lstm = nn.LSTM(input_size=99, hidden_size=self.z_dim, num_layers=1, batch_first=True, dropout=1.-args.keep_prob)
         self.regressor = nn.Sequential(
-            nn.Linear(args.z_dim, args.z_dim//2),
+            nn.Linear(self.z_dim, self.z_dim//2),
             nn.ReLU(),
-            nn.Linear(args.z_dim//2, 1),
+            nn.Linear(self.z_dim//2, 1),
         )
 
 
     def forward(self, X):
-        print("RNN forward is being called!")
-        exit(1)
+        # print("RNN forward is being called!")
+        # print("X shape", X.shape)
+
+        # Extract the features we're using
+        X_w = X[:, :, :self.n_w]
+        X_m = X[:, :, self.progress_indices]
+        X_s = X[:, :, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s]
+        X_extra = X[:, :, self.n_w+self.n_m+self.n_s:]
+        if self.no_management:
+            X = torch.cat((X_w, X_s, X_extra), dim=2)
+        else:
+            X = torch.cat((X_w, X_m, X_s, X_extra), dim=2)
+
+        # Pass each year's feature vector through MLP
+        # print("New X shape", X.shape)
         n_batch, n_years, n_feat = X.shape
         X = X.reshape(-1, n_feat)
+        # print("After initial reshape", X.shape)
         X = self.fc(X)
         X_all = X.reshape(n_batch, n_years, -1) # [64, 5, 99]
+        # print("After FC and reshape", X_all.shape)
 
+        # Now pass the sequence of year features through the LSTM
         out, (last_h, last_c) = self.lstm(X_all)
-        #print("out:", out.shape) # [64, 5, 64]
-        #print("last_h:", last_h.shape) # [1, 64, 64]
-        #print("last_c:", last_c.shape) # [1, 64, 64]
-        pred = self.regressor(out).squeeze(-1) # [64, 5]
+        # print("out:", out.shape) # [64, 5, 64]
+        # print("last_h:", last_h.shape) # [1, 64, 64]
+        # print("last_c:", last_c.shape) # [1, 64, 64]
+        pred = self.regressor(out)  #.squeeze(-1) # [64, 5]
         
         return pred
  

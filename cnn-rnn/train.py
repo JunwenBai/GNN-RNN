@@ -14,7 +14,7 @@ import datetime
 from copy import copy, deepcopy
 from model import CNN_RNN, RNN
 import random
-from utils import get_X_Y, build_path, get_git_revision_hash
+from utils import get_X_Y, build_path, get_git_revision_hash, mask_end
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import pandas as pd
@@ -34,8 +34,8 @@ best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 # pred, Y assumed to be 2D: [examples x outputs]
 def eval(pred, Y, args):
     # Standardize based on mean/std of each output (crop type). NOTE - ignore this for now
-    # Y = (Y - args.means) / args.stds
-    # pred = (pred - args.means) / args.stds
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
     pred, Y = pred.detach().cpu().numpy(), Y.detach().cpu().numpy()
     metric_names = ['rmse', 'r2', 'corr', 'mae', 'mse', 'mape']
     metrics = {metric_name : {} for metric_name in metric_names}
@@ -78,9 +78,9 @@ def loss_fn(pred, Y, args, mode="logcosh"):
     Y = torch.reshape(Y, (-1, Y.shape[-1]))
     pred = torch.reshape(pred, (-1, pred.shape[-1]))
 
-    # Standardize based on mean/std of each output (crop type) - ignore for now
-    # Y = (Y - args.means) / args.stds
-    # pred = (pred - args.means) / args.stds
+    # Standardize based on mean/std of each output (crop type)
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
 
     # Compute loss for each output (crop type)
     for i in range(Y.shape[-1]):
@@ -109,7 +109,7 @@ def loss_fn(pred, Y, args, mode="logcosh"):
     return loss
 
 
-# Note: change so that metrics are always updated!
+# Note: this was changed so that metrics are always updated!
 def update_metrics(rmse, r2, corr, mode):
     if mode == "Val":
         best_val['rmse'] = rmse
@@ -138,8 +138,14 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
 
     for batch_idx, (X, Y, counties, years) in enumerate(train_loader): # 397
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)  # X: [batch size, 5, num features]  Y: [batch size, 5]
+        
+        # Randomly mask out some data from the end of the last year in the 5-year sequence,
+        # to force model to learn how to make early predictions
+        X[:, -1, :] = mask_end(X[:, -1, :], args, args.train_week_start, args.time_intervals)
+
+        # Clear gradients and pass X through model
         optimizer.zero_grad()
-        predictions_std = model(X, Y)
+        predictions_std = model(X)
         pred = predictions_std * args.stds + args.means
         loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
                loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
@@ -165,7 +171,7 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
             #     tot_loss/n_batch, tot_rmse/n_batch, tot_r2/n_batch, tot_corr/n_batch, tot_mae/n_batch, tot_mape/n_batch)
             # )
             print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
-                tot_loss/n_batch, metrics_batch['rmse']['avg'], metrics_batch['r2']['avg'], metrics_batch['corr']['avg'], metrics_batch['mae']['avg'], metrics_batch['mape']['avg'])
+                loss.item(), metrics_batch['rmse']['avg'], metrics_batch['r2']['avg'], metrics_batch['corr']['avg'], metrics_batch['mae']['avg'], metrics_batch['mape']['avg'])
             )
         
         cur_step = tot_batch * epoch + batch_idx
@@ -173,7 +179,7 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
         if writer is not None:
             lr = optimizer.param_groups[0]['lr']
             writer.add_scalar("lr", lr, cur_step)
-            writer.add_scalar("Train/loss", tot_loss/n_batch, cur_step)
+            writer.add_scalar("Train/loss", loss.item(), cur_step)
             writer.add_scalar("Train/rmse", metrics_batch['rmse']['avg'], cur_step)
             writer.add_scalar("Train/r2", metrics_batch['r2']['avg'], cur_step)
             writer.add_scalar("Train/corr", metrics_batch['corr']['avg'], cur_step)
@@ -225,7 +231,11 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
     all_Y = []
     for batch_idx, (X, Y, counties, years) in enumerate(test_loader):
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
-        predictions_std = model(X, Y)
+
+        # To simulate early prediction, mask out data starting from the specified "validation_week"
+        X[:, -1, :] = mask_end(X[:, -1, :], args, args.validation_week, args.validation_week)
+
+        predictions_std = model(X)
         pred = predictions_std * args.stds + args.means
 
         loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
@@ -285,26 +295,22 @@ def train(args):
     print('reading npy...')
     np.random.seed(args.seed) # set the random seed of numpy
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
 
-    # TODO this changed!
-    print(args.data_dir)
-
+    # Load data from the data_dir
+    print("Loading data from", args.data_dir)
     if args.data_dir.endswith(".npz"):
-        raw_data = np.load(args.data_dir) #load data from the data_dir
+        raw_data = np.load(args.data_dir) 
         data = raw_data['data']
     elif args.data_dir.endswith(".npy"):
-        data = np.load(args.data_dir)  #, dtype=float, delimiter=',')
-        print("Data shape", data.shape)    
+        data = np.load(args.data_dir)
     elif args.data_dir.endswith(".csv"):
         data = np.genfromtxt(args.data_dir, dtype=float, delimiter=',')
-        print("Data shape", data.shape)
     else:
         raise ValueError("--data_dir argument must end in .npz, .npy, or .csv")
-
-    # data = np.load(args.data_dir) #load data from the data_dir
+    print("Raw data shape", data.shape)
 
     X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test = get_X_Y(data, args, device)
-
 
     # Create Tensors, datasets, dataloaders
     X_train, X_val, X_test = torch.Tensor(X_train), torch.Tensor(X_val), torch.Tensor(X_test)
@@ -323,15 +329,16 @@ def train(args):
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=1)
 
     n_train = len(X_train)
-    param_setting = "{}_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_len-{}_seed-{}".format(
-        args.model, args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.length, args.seed)
+
+    param_setting = "{}_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_trainweekstart-{}_len-{}_seed-{}".format(
+        args.model, args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.train_week_start, args.length, args.seed)
     if args.share_conv_parameters:
         param_setting += "_share-params"
     if args.no_management:
         param_setting += "_no-management"
     elif args.combine_weather_and_management:
         param_setting += "_combine-w-m"
-    
+
 
     # Directories to store TensorBoard summary, model params, and results
     summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
@@ -347,7 +354,7 @@ def train(args):
     if not os.path.isfile(results_summary_file):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr'])
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr', 'path_to_model'])
 
     #building the model 
     print('building network...')
@@ -377,6 +384,7 @@ def train(args):
 
 
     best_val_rmse = 1e9
+    best_model_path = ""
 
     # Store RMSE/R2 at each epoch, for plotting later
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
@@ -403,8 +411,9 @@ def train(args):
             best_val_rmse = val_rmse
 
             # Save model to file
-            torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
-            print('save model to', model_dir)
+            best_model_path = model_dir + '/model-' + str(epoch)
+            torch.save(model.state_dict(), best_model_path)
+            print('save model to', best_model_path)
             print('results file', os.path.join(results_dir, "val_results.csv"))
             
             # Save raw results (true and predicted labels) to files
@@ -432,17 +441,18 @@ def train(args):
         csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow([args.dataset, args.model, git_commit, command_string,
                              str(args.test_year - 1), best_val['rmse'], best_val['r2'], best_val['corr'],
-                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr']])
+                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr'], best_model_path])
 
     # Record Git commit and command used, along with final metrics
     with open(os.path.join(results_dir, "summary.txt"), 'w') as f:
         f.write("Algorithm: " + args.model + "\n")
         f.write("Dataset: " + args.dataset + "\n")
         f.write("Git commit: " + git_commit + "\n")
-        f.write("Command: " + command_string + "\n\n")
+        f.write("Command: " + command_string + "\n")
+        f.write("Final model path: " + best_model_path + "\n\n")
         f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
- 
+
     # Plot RMSE over time
     epoch_list = range(len(train_rmse_list))
     plots = []

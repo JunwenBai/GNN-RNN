@@ -8,9 +8,6 @@ import subprocess
 import visualization_utils
 import warnings
 
-def get_git_revision_hash():
-    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
-
 def build_path(path):
     path_levels = path.split('/')
     cur_path = ""
@@ -21,6 +18,43 @@ def build_path(path):
             cur_path = path_seg
         if not os.path.exists(cur_path):
             os.mkdir(cur_path)
+
+def get_git_revision_hash():
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+
+
+# For each row in X, randomly choose a week between min_week and max_week (inclusive),
+# where weeks are indexed starting from 1.
+# If we want to fix a week, simply make min_week and max_week equal.
+# Zero out all features AFTER this week.
+# TODO - to save time, this could be put inside the DataLoader code
+def mask_end(X, args, min_week, max_week):
+    # If min_week is time_intervals, we're not masking any data, so
+    # just return the original X
+    if min_week == args.time_intervals:
+        return X
+
+    n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
+    n_m = args.time_intervals*args.num_management_vars
+    num_vars = n_m + n_w
+    batch_size = X.shape[0]
+
+    # Create mask which is 1 for features up to (and incluing) the current
+    # week, and 0 afterwards. Index is 1 based
+    mask = np.zeros((batch_size, num_vars // args.time_intervals, args.time_intervals))
+    if min_week == max_week:
+        mask[:, :, :min_week] = 1
+    else:
+        weeks = np.random.randint(min_week, max_week+1, size=batch_size)
+        for i in range(batch_size):
+            mask[i, :, :weeks[i]] = 1
+
+    # "Flatten" mask, and then multiply each feature vector by the mask. The
+    # effect is to zero out all features after the chosen week.
+    mask = mask.reshape((batch_size, num_vars))
+    X[:, :n_w+n_m] = X[:, :n_w+n_m] * mask
+    return X
+
 
 def get_X_Y(data, args, device):
     if args.data_dir == "soybean_data_full.npz":
@@ -35,15 +69,14 @@ def get_X_Y(data, args, device):
         counties_all = data[:, 0].astype(int)
         years_all = data[:, 1].astype(int)
 
-        # For now, we only have yield until 2016, so only include years up to 2016.
+        # Only include years up to the test year.
         # Exclude county 25019 (Nantucket County) since it has no NLDAS data.
-        # Exclude rows where all labels are NaN.
         data = data[(years_all <= args.test_year) & (counties_all != 25019)]
         print("After filtering", data.shape)
         counties = data[:, 0].astype(int)
         years = data[:, 1].astype(int)
         Y = data[:, [args.output_idx]]
-        X = data[:, 7:]
+        X = data[:, 8:]
 
     print("get_X_Y")
     print("X shape", X.shape)

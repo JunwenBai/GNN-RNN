@@ -6,22 +6,25 @@ from test_predictions_over_time import test_predictions_over_time
 
 # Index of the yield variable for each variable
 OUTPUT_INDICES = {'corn': 2,
-                  'cotton': 3,
+                  'upland_cotton': 3,
                   'sorghum': 4,
                   'soybeans': 5,
-                  'wheat': 6}
+                  'spring_wheat': 6,
+                  'winter_wheat': 7}
 
 # Indices of the progress variables for each crop type in the X array.
-PROGRESS_INDICES_DAILY = {'corn': list(range(8402-7, 13147-7)),
-                          'cotton': list(range(13147-7, 17892-7)),
-                          'sorghum': list(range(17892-7, 22637-7)),
-                          'soybeans': list(range(22637-7, 28112-7)),
-                          'wheat': list(range(28112-7, 43442-7))}
-PROGRESS_INDICES_WEEKLY = {'corn': list(range(1203-7, 1879-7)),
-                          'cotton': list(range(1879-7, 2555-7)),
-                          'sorghum': list(range(2555-7, 3231-7)),
-                          'soybeans': list(range(3231-7, 4011-7)),
-                          'spring_wheat': list(range(4011-7, 6195-7))}
+PROGRESS_INDICES_DAILY = {'corn': list(range(8403-8, 13148-8)),
+                          'upland_cotton': list(range(13148-8, 17893-8)),
+                          'sorghum': list(range(17893-8, 22638-8)),
+                          'soybeans': list(range(22638-8, 28113-8)),
+                          'spring_wheat': list(range(32858-8, 37603-8)),
+                          'winter_wheat': list(range(37603-8, 43443-8))}
+PROGRESS_INDICES_WEEKLY = {'corn': list(range(1204-8, 1880-8)),
+                          'upland_cotton': list(range(1880-8, 2556-8)),
+                          'sorghum': list(range(2556-8, 3232-8)),
+                          'soybeans': list(range(3232-8, 4012-8)),
+                          'spring_wheat': list(range(4688-8, 5364-8)),
+                          'winter_wheat': list(range(5364-8, 6196-8))}
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-dataset', "--dataset", default='soybean', type=str, help='dataset name')
@@ -48,14 +51,14 @@ parser.add_argument('-T0', "--T0", default=50, type=int, help='optimizer T0')
 parser.add_argument('-T_mult', "--T_mult", default=2, type=int, help='optimizer T_multi')
 parser.add_argument('-patience', "--patience", default=1, type=int, help='optimizer patience')
 parser.add_argument('-test_year', "--test_year", default=2017, type=int, help='test year')
-parser.add_argument('-length', "--length", default=5, type=int, help='test year')
+parser.add_argument('-length', "--length", default=5, type=int, help='length of sequence (# years)')
 parser.add_argument('-z_dim', "--z_dim", default=64, type=int, help='hidden units in RNN')
 
 parser.add_argument('-keep_prob', "--keep_prob", default=1.0, type=float, help='1.-drop out rate')
 parser.add_argument('-c1', "--c1", default=0.0, type=float, help='c1')
 parser.add_argument('-c2', "--c2", default=1.0, type=float, help='c2')
 parser.add_argument('-mode', "--mode", type=str, help='training/test mode')
-parser.add_argument('-model', "--model", type=str, help='model type')
+parser.add_argument('-model', "--model", type=str, help='model type', choices=['cnn_rnn', 'rnn'])
 parser.add_argument('-sche', "--scheduler", default='cosine', choices=['cosine', 'step', 'plateau', 'exp'], help='lr scheduler')
 parser.add_argument('-exp_gamma', "--exp_gamma", default=0.98, type=float, help='exp lr decay gamma')
 
@@ -65,7 +68,7 @@ parser.add_argument('-clip_grad', "--clip_grad", default=10.0, type=float, help=
 # parser.add_argument('-data_dir', "--data_dir", type=str, default="/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly_1981-2020.csv")
 # parser.add_argument('-data_file', "--data_file", type=str, default="combined_dataset_weekly_1981-2020.csv")
 # parser.add_argument('-num_outputs', "--num_outputs", default=6, type=int)
-parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
+parser.add_argument('-crop_type', '--crop_type', choices=["corn", "upland_cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
 parser.add_argument('-num_weather_vars', "--num_weather_vars", default=23, type=int, help='Number of daily weather vars, from PRISM and NLDAS. There were 6 in the CNN-RNN paper, 23 in our new dataset.')
 parser.add_argument('-num_management_vars', "--num_management_vars", default=96, type=int, help='Number of weekly management (crop progress) variables. There are 96 in our new dataset.')
 parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, help='Number of depth-dependent soil vars, from gSSURGO. There were 10 in the CNN-RNN paper, 20 in our new dataset.')
@@ -74,6 +77,8 @@ parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='
 parser.add_argument('-share_conv_params', "--share_conv_parameters", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
 parser.add_argument('-combine_weather_and_management', "--combine_weather_and_management", default=False, action='store_true', help='Whether weather variables should share the same conv parameters or not')
 parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
+parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive), and mask out data starting from the random week. Set to args.time_intervals for no masking.")
+parser.add_argument('-validation_week', "--validation_week", default=52, type=int, help="Mask out data starting from this week during validation. Set to args.time_intervals for no masking.")
 
 # ONLY used for test_predictions_over_time, if we're plotting predictions over time for a specific county and the test year.
 parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=int, help='County FIPS to plot (ONLY used for the "test_predictions_over_time" mode).')

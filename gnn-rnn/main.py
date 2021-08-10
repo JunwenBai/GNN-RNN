@@ -4,22 +4,25 @@ from test import test
 
 # Index of the yield variable for each variable
 OUTPUT_INDICES = {'corn': 2,
-                  'cotton': 3,
+                  'upland_cotton': 3,
                   'sorghum': 4,
                   'soybeans': 5,
-                  'wheat': 6}
+                  'spring_wheat': 6,
+                  'winter_wheat': 7}
 
 # Indices of the progress variables for each crop type in the X array.
-PROGRESS_INDICES_DAILY = {'corn': list(range(8402-7, 13147-7)),
-                          'cotton': list(range(13147-7, 17892-7)),
-                          'sorghum': list(range(17892-7, 22637-7)),
-                          'soybeans': list(range(22637-7, 28112-7)),
-                          'wheat': list(range(28112-7, 43442-7))}
-PROGRESS_INDICES_WEEKLY = {'corn': list(range(1203-7, 1879-7)),
-                          'cotton': list(range(1879-7, 2555-7)),
-                          'sorghum': list(range(2555-7, 3231-7)),
-                          'soybeans': list(range(3231-7, 4011-7)),
-                          'spring_wheat': list(range(4011-7, 6195-7))}
+PROGRESS_INDICES_DAILY = {'corn': list(range(8403-8, 13148-8)),
+                          'upland_cotton': list(range(13148-8, 17893-8)),
+                          'sorghum': list(range(17893-8, 22638-8)),
+                          'soybeans': list(range(22638-8, 28113-8)),
+                          'spring_wheat': list(range(32858-8, 37603-8)),
+                          'winter_wheat': list(range(37603-8, 43443-8))}
+PROGRESS_INDICES_WEEKLY = {'corn': list(range(1204-8, 1880-8)),
+                          'upland_cotton': list(range(1880-8, 2556-8)),
+                          'sorghum': list(range(2556-8, 3232-8)),
+                          'soybeans': list(range(3232-8, 4012-8)),
+                          'spring_wheat': list(range(4688-8, 5364-8)),
+                          'winter_wheat': list(range(5364-8, 6196-8))}
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-dataset', "--dataset", default='soybean', type=str, help='dataset name')
@@ -65,6 +68,7 @@ parser.add_argument('-clip_grad', "--clip_grad", default=10.0, type=float, help=
 parser.add_argument('-n_layers', "--n_layers", default=2, type=int, help='GraphSage # of layers')
 parser.add_argument('-dropout', "--dropout", default=0.5, type=float, help='dropout')
 parser.add_argument('-aggregator_type', "--aggregator_type", default="mean", choices=["mean", "gcn", "pool", "lstm"])
+parser.add_argument('-encoder_type', "--encoder_type", default="cnn", choices=["cnn", "lstm", "gru"])
 
 # Added: dataset params
 parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
@@ -74,6 +78,8 @@ parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, h
 parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
 parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
+parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive), and mask out data starting from the random week. Set to args.time_intervals for no masking.")
+parser.add_argument('-validation_week', "--validation_week", default=52, type=int, help="Mask out data starting from this week during validation. Set to args.time_intervals for no masking.")
 
 args = parser.parse_args()
 args.model = "gnn_rnn"

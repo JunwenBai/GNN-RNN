@@ -16,7 +16,7 @@ from copy import copy, deepcopy
 from model import SAGE_RNN
 import random
 import matplotlib.pyplot as plt
-from utils import get_X_Y, build_path, get_git_revision_hash
+from utils import get_X_Y, build_path, get_git_revision_hash, mask_end
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 sys.path.append('../cnn-rnn')  # HACK
@@ -37,7 +37,9 @@ best_val = {'rmse': 1e9, 'r2': -1e9, 'corr':-1e9}
 
 
 # TODO - currently only supports single label (predictions and Y are flattened)
-def eval(pred, Y):
+def eval(pred, Y, args):
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
     pred, Y = pred.flatten().detach().cpu().numpy(), Y.flatten().detach().cpu().numpy()
 
     # Remove entries where Y is NA
@@ -106,7 +108,7 @@ def load_subtensor(year_XY, year, in_nodes, out_nodes, device):
     batch_counties = counties[out_nodes].int().to(device)
     return batch_inputs, batch_labels, batch_counties
 
-def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, epoch, writer=None):
+def train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, optimizer, epoch, writer=None):
     print("\n---------------------")
     print("Epoch ", epoch)
     print("---------------------")
@@ -123,19 +125,31 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
         if year == args.test_year or year == args.test_year-1: 
             continue
 
-        # If there are missing labels in the Y sequence that's being passed to
-        # the RNN, substitute the average value across the previous 4 years.
-        X, Y, counties = year_XY[year]
-        Y = Y[:, :-1, :]  # Exclude current year, since the model should not receive info about the current year's labels as input
-        year_avg_Y = (Y[~torch.isnan(Y)].mean() - args.means) / args.stds
-        # print("Year", year, "avg Y", year_avg_Y)
-
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
             if torch.isnan(batch_labels[:, -1]).all():
                 continue
             batch_labels_std = (batch_labels - args.means) / args.stds
-            batch_labels_std[torch.isnan(batch_labels_std)] = year_avg_Y
+
+            # Randomly mask out some data from the end of the last year in the 5-year sequence,
+            # to force model to learn how to make early predictions
+            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], args, args.train_week_start, args.time_intervals)
+
+            # If labels are missing in the INPUT to the model (batch_labels_std),
+            # replace them with the average for that year
+            seq_years = batch_labels_std.shape[1]
+            for i in range(seq_years - 1):  # Exclude current year
+                for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
+                    year_i = (year - seq_years + 1) + i
+                    missing_indices = torch.isnan(batch_labels_std[:, i, j])
+                    batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
+
+
+            # # print("Batch inputs", batch_inputs.shape)
+            # # print("Batch labels", batch_labels_std.shape)
+            # indices_with_nan_labels = torch.isnan(batch_labels_std).any(dim=1).squeeze()
+            
+            # batch_labels_std[torch.isnan(batch_labels_std)] = args.means[0]  # year_avg_Y
 
             #print(batch_inputs.shape, batch_labels.shape) # [711, 5, 431] [64, 5]
             blocks = [block.int().to(device) for block in blocks]
@@ -157,7 +171,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
             # Record values and metrics
             all_pred.append(batch_pred)
             all_Y.append(batch_labels[:, -1])
-            metrics_batch = eval(batch_pred, batch_labels[:, -1])
+            metrics_batch = eval(batch_pred, batch_labels[:, -1], args)
             tot_loss += loss.item()
 
             if n_batch % args.check_freq == 0:
@@ -191,7 +205,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
     # Calculate stats on all data
     all_pred = torch.cat(all_pred, dim=0)
     all_Y = torch.cat(all_Y, dim=0)
-    metrics_all = eval(all_pred, all_Y)
+    metrics_all = eval(all_pred, all_Y, args)
 
     n_batch = batch_idx+1
     print("\n###### Overall training metrics")
@@ -202,7 +216,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
     return cur_step, metrics_all, results
 
 
-def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", writer=None):
+def val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, mode="Val", writer=None):
     print("********************")
     print("Epoch", epoch, mode)
     print("********************")
@@ -224,16 +238,23 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
     #     Y = Y[:, :-1, :]  # Exclude current year, since the model should not receive info about the current year's labels as input
 
     with torch.no_grad():
-        # If there are missing labels in the Y sequence that's being passed to
-        # the RNN, substitute the average value across the previous 4 years.
-        X, Y, counties = year_XY[year]
-        Y = Y[:, :-1, :]  # Exclude current year, since the model should not receive info about the current year's labels as input
-        year_avg_Y = (Y[~torch.isnan(Y)].mean() - args.means) / args.stds
-
         for batch_idx, (in_nodes, out_nodes, blocks) in enumerate(nodeloader):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
+
+            # To simulate early prediction, mask out data starting from the specified "validation_week"
+            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], args, args.validation_week, args.validation_week)
+
             batch_labels_std = (batch_labels - args.means) / args.stds
-            batch_labels_std[torch.isnan(batch_labels_std)] = year_avg_Y
+
+            # If labels are missing in the INPUT to the model (batch_labels_std),
+            # replace them with the average for that year
+            seq_years = batch_labels_std.shape[1]
+            for i in range(seq_years - 1):  # Exclude current year
+                for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
+                    year_i = (year - seq_years + 1) + i
+                    missing_indices = torch.isnan(batch_labels_std[:, i, j])
+                    batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
+
             blocks = [block.int().to(device) for block in blocks]
 
             batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
@@ -242,7 +263,7 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
 
             all_pred.append(batch_pred)
             all_Y.append(batch_labels[:, -1])
-            metrics = eval(batch_pred, batch_labels[:, -1])
+            metrics = eval(batch_pred, batch_labels[:, -1], args)
             tot_loss += loss.item()
             tot_rmse += metrics['rmse']
             tot_r2 += metrics['r2']
@@ -265,7 +286,7 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
         # Calculate stats on all data
         all_pred = torch.cat(all_pred, dim=0)
         all_Y = torch.cat(all_Y, dim=0)
-        metrics_all = eval(all_pred, all_Y)
+        metrics_all = eval(all_pred, all_Y, args)
 
         n_batch = batch_idx+1
         #print("###### Overall Validation metrics")
@@ -288,10 +309,16 @@ def train(args):
     print('reading npy...')
     np.random.seed(args.seed) # set the random seed of numpy
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
     raw_data = np.load(args.data_dir) #load data from the data_dir
     data = raw_data['data']
     
-    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set = get_X_Y(data, args, device)
+    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set, year_avg_Y = get_X_Y(data, args, device)
+    print("Average Y calculated originally")
+    for year in year_avg_Y:
+        year_avg_Y[year] = torch.tensor(year_avg_Y[year])
+    print(year_avg_Y)
+    print('=============================================')
     sp_adj = sp.coo_matrix(adj)
     g = dgl.from_scipy(sp_adj)
     
@@ -332,10 +359,20 @@ def train(args):
         X_seqs, Y_seqs, counties = torch.tensor(X_seqs), torch.tensor(Y_seqs), torch.tensor(counties)
         year_XY[year] = (X_seqs, Y_seqs, counties)
 
-    print("Number of nans")
-    print(num_nan_distribution)
-    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.length, args.seed)
+    # Compute average yield for year
+    year_avg_Y_new = {}
+    for year in range(min_year, max_year+1):
+        Y_values = []
+        for county in county_set:
+            Y_values.append(Y_dict[county][year])
+        Y = np.array(Y_values)
+        avg_Y = np.nanmean(Y, axis=0)
+        year_avg_Y_new[year] = torch.tensor(avg_Y)
+    print("New avg Y")
+    print(year_avg_Y_new)
+
+    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.encoder_type, args.train_week_start, args.length, args.seed)
     if args.no_management:
         param_setting += "_no-management"
 
@@ -388,9 +425,9 @@ def train(args):
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
 
     for epoch in range(args.max_epoch):
-        cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, epoch, writer)
-        val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, epoch, "Val", writer)
-        test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, epoch, "Test", writer)
+        cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, optimizer, epoch, writer)
+        val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, "Val", writer)
+        test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, "Test", writer)
 
         # Record epoch metrics in list
         val_rmse = val_metrics['rmse']
@@ -407,8 +444,9 @@ def train(args):
             best_val_rmse = val_rmse
 
             # Save model to file
-            torch.save(model.state_dict(), model_dir+'/model-'+str(epoch))
-            print('save model to', model_dir)
+            best_model_path = model_dir + '/model-' + str(epoch)
+            torch.save(model.state_dict(), best_model_path)
+            print('save model to', best_model_path)
 
             # Save raw results (true and predicted labels) to files
             train_results.to_csv(os.path.join(results_dir, "train_results.csv"), index=False)
@@ -434,14 +472,15 @@ def train(args):
         csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow([args.dataset, args.model, git_commit, command_string,
                              str(args.test_year - 1), best_val['rmse'], best_val['r2'], best_val['corr'],
-                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr']])
+                             str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr'], best_model_path])
 
     # Record Git commit and command used, along with final metrics
     with open(os.path.join(results_dir, "summary.txt"), 'w') as f:
         f.write("Algorithm: " + args.model + "\n")
         f.write("Dataset: " + args.dataset + "\n")
         f.write("Git commit: " + git_commit + "\n")
-        f.write("Command: " + command_string + "\n\n")
+        f.write("Command: " + command_string + "\n")
+        f.write("Final model path: " + best_model_path + "\n\n")
         f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
  
