@@ -21,13 +21,14 @@ column_maxs = np.nanmax(data, axis=0)
 print("Column mins shape", column_mins.shape)
 YEARS = list(range(1981, 2021))
 year_column = data[:, 1]
-YIELD_INDICES = {'corn': 2,
-                  'cotton': 3,
-                  'sorghum': 4,
-                  'soybeans': 5,
-                  'wheat': 6}
+# YIELD_INDICES = {'corn': 2,
+#                   'cotton': 3,
+#                   'sorghum': 4,
+#                   'soybeans': 5,
+#                   'wheat': 6}
 COLUMN_NAMES = pd.read_csv(DATASET_CSV_FILE, index_col=False, nrows=0).columns.tolist()
-print(COLUMN_NAMES[5345+7])
+PLOT_INDICES = list(range(2, 8))
+print(COLUMN_NAMES[0:10])
 
 # exit(1)
 # List of lists. Goal is to create a csv file where each feature has a row,
@@ -44,6 +45,13 @@ for col_idx in range(2, data.shape[1]):
         rows_to_select = (year_column == year)
         values = data[rows_to_select, col_idx]  # Filter for rows within this year
         counties = data[rows_to_select, 0]
+
+        # Plot map of variable data this year (we include the NaN entries so that
+        # every county gets plotted
+        if col_idx in PLOT_INDICES:
+            visualization_utils.plot_county_data(counties, values, col_name, year,
+                                                 os.path.join(PLOT_DIR, "maps"))
+
         non_nan_rows = ~np.isnan(values)
         values = values[non_nan_rows]
         counties = counties[non_nan_rows]
@@ -54,10 +62,7 @@ for col_idx in range(2, data.shape[1]):
         years_with_data.append(year)
         values_by_year.append(values)
 
-        # Plot map of variable data this year
-        if col_idx >= 1470 and col_idx <= 1493:
-            visualization_utils.plot_county_data(counties, values, col_name, year,
-                                                 os.path.join(PLOT_DIR, "maps"))
+
 
     # Append number of counties with data
     num_counties_with_data.append(counties_with_col_data)
