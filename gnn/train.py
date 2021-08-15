@@ -106,7 +106,7 @@ def load_subtensor(year_XY, year, in_nodes, out_nodes, device):
     batch_counties = counties[out_nodes].int().to(device)
     return batch_inputs, batch_labels, batch_counties
 
-def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, epoch, writer=None):
+def train_epoch(args, model, device, nodeloader, year_XY, county_avg, cur_step, optimizer, epoch, writer=None):
     print("\n---------------------")
     print("Epoch ", epoch)
     print("---------------------")
@@ -129,7 +129,8 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
 
             # Randomly mask out some data from the end of the last year in the 5-year sequence,
             # to force model to learn how to make early predictions
-            batch_inputs = mask_end(batch_inputs, args, args.train_week_start, args.time_intervals)
+            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            batch_inputs = mask_end(batch_inputs, batch_input_counties, county_avg, args, args.train_week_start, args.time_intervals, device)
 
             #print(batch_inputs.shape, batch_labels.shape) # [675, 431] [64]
             blocks = [block.int().to(device) for block in blocks]
@@ -198,7 +199,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, e
     return cur_step, metrics_all, results
 
 
-def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", writer=None):
+def val_epoch(args, model, device, nodeloader, year_XY, county_avg, epoch, mode="Val", writer=None):
     print("********************")
     print("Epoch", epoch, mode)
     print("********************")
@@ -217,7 +218,8 @@ def val_epoch(args, model, device, nodeloader, year_XY, epoch, mode="Val", write
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
 
             # To simulate early prediction, mask out data starting from the specified "validation_week"
-            batch_inputs = mask_end(batch_inputs, args, args.validation_week, args.validation_week)
+            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            batch_inputs = mask_end(batch_inputs, batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
 
             blocks = [block.int().to(device) for block in blocks]
             batch_pred_std = model(blocks, batch_inputs)  #.squeeze(-1)
@@ -282,7 +284,7 @@ def train(args):
     raw_data = np.load(args.data_dir) #load data from the data_dir
     data = raw_data['data']
     
-    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set = get_X_Y(data, args, device)
+    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set, county_avg = get_X_Y(data, args, device)
 
     sp_adj = sp.coo_matrix(adj)
     g = dgl.from_scipy(sp_adj)
@@ -332,7 +334,7 @@ def train(args):
     if not os.path.isfile(results_summary_file):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr'])
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr', 'path_to_model'])
 
     #building the model
     print('building network...')
@@ -368,9 +370,9 @@ def train(args):
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
 
     for epoch in range(args.max_epoch):
-        cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, cur_step, optimizer, epoch, writer)
-        val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, epoch, "Val", writer)
-        test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, epoch, "Test", writer)
+        cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, county_avg, cur_step, optimizer, epoch, writer)
+        val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, epoch, "Val", writer)
+        test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, epoch, "Test", writer)
 
         # Record epoch metrics in list
         val_rmse = val_metrics['rmse']

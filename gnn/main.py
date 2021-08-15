@@ -65,6 +65,7 @@ parser.add_argument('-clip_grad', "--clip_grad", default=10.0, type=float, help=
 parser.add_argument('-n_layers', "--n_layers", default=2, type=int, help='GraphSage # of layers')
 parser.add_argument('-dropout', "--dropout", default=0.5, type=float, help='dropout')
 parser.add_argument('-aggregator_type', "--aggregator_type", default="mean", choices=["mean", "gcn", "pool", "lstm"])
+parser.add_argument('-full_graph_inference', "--full_graph_inference", default=False, action='store_true', help='Whether to do inference on whole graph. Only used in test.py')
 
 # Added: dataset params
 parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
@@ -77,6 +78,10 @@ parser.add_argument('-no_management', "--no_management", default=False, action='
 parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive), and mask out data starting from the random week. Set to args.time_intervals for no masking.")
 parser.add_argument('-validation_week', "--validation_week", default=52, type=int, help="Mask out data starting from this week during validation. Set to args.time_intervals for no masking.")
 parser.add_argument('-test_sampling', "--test_sampling", default=False, action='store_true', help="For testing only. Set this flag if the model should be evaluated using sampling, otherwise the entire graph will be used.")
+parser.add_argument('-mask_prob', "--mask_prob", default=1, type=float, help="Probability of masking. 0 means don't mask any data.")
+parser.add_argument('-mask_value', "--mask_value", choices=['zero', 'county_avg'], default='zero')
+
+
 args = parser.parse_args()
 args.model = "gnn"
 

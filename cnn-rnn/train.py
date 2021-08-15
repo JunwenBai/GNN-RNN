@@ -122,7 +122,7 @@ def update_metrics(rmse, r2, corr, mode):
         best_test['corr'] = corr
 
 
-def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None):
+def train_epoch(args, model, device, train_loader, county_avg, optimizer, epoch, writer=None):
     print("\n---------------------")
     print("Epoch ", epoch)
     print("---------------------")
@@ -141,7 +141,7 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
         
         # Randomly mask out some data from the end of the last year in the 5-year sequence,
         # to force model to learn how to make early predictions
-        X[:, -1, :] = mask_end(X[:, -1, :], args, args.train_week_start, args.time_intervals)
+        X[:, -1, :] = mask_end(X[:, -1, :], counties, county_avg, args, args.train_week_start, args.time_intervals, device)
 
         # Clear gradients and pass X through model
         optimizer.zero_grad()
@@ -220,7 +220,7 @@ def train_epoch(args, model, device, train_loader, optimizer, epoch, writer=None
     return metrics_all, results
 
 
-def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
+def val_epoch(args, model, device, test_loader, county_avg, epoch, mode="Val", writer=None):
     print("********************")
     print("Epoch", epoch, mode)
     print("********************")
@@ -233,7 +233,7 @@ def val_epoch(args, model, device, test_loader, epoch, mode="Val", writer=None):
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
 
         # To simulate early prediction, mask out data starting from the specified "validation_week"
-        X[:, -1, :] = mask_end(X[:, -1, :], args, args.validation_week, args.validation_week)
+        X[:, -1, :] = mask_end(X[:, -1, :], counties, county_avg, args, args.validation_week, args.validation_week, device)
 
         predictions_std = model(X)
         pred = predictions_std * args.stds + args.means
@@ -310,7 +310,7 @@ def train(args):
         raise ValueError("--data_dir argument must end in .npz, .npy, or .csv")
     print("Raw data shape", data.shape)
 
-    X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test = get_X_Y(data, args, device)
+    X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test, county_avg = get_X_Y(data, args, device)
 
     # Create Tensors, datasets, dataloaders
     X_train, X_val, X_test = torch.Tensor(X_train), torch.Tensor(X_val), torch.Tensor(X_test)
@@ -391,9 +391,9 @@ def train(args):
 
     # Train/validate/test
     for epoch in range(args.max_epoch):
-        train_metrics, train_results = train_epoch(args, model, device, train_loader, optimizer, epoch, writer)
-        val_metrics, val_results = val_epoch(args, model, device, val_loader, epoch, "Val", writer)
-        test_metrics, test_results = val_epoch(args, model, device, test_loader, epoch, "Test", writer)
+        train_metrics, train_results = train_epoch(args, model, device, train_loader, county_avg, optimizer, epoch, writer)
+        val_metrics, val_results = val_epoch(args, model, device, val_loader, county_avg, epoch, "Val", writer)
+        test_metrics, test_results = val_epoch(args, model, device, test_loader, county_avg, epoch, "Test", writer)
 
         # Record epoch metrics in list
         val_rmse = val_metrics['rmse']['avg']

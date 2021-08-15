@@ -213,7 +213,7 @@ def test(args):
         model = RNN(args).to(device)
     else:
         raise ValueError("model type not supported yet")
-    model.load_state_dict(torch.load(args.checkpoint_path))
+    model.load_state_dict(torch.load(args.checkpoint_path, map_location=device))
     model.eval()
     
     test_metrics, test_results = test_epoch(args, model, device, test_loader, "Test")

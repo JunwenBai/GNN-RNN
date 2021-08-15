@@ -30,7 +30,7 @@ def plot_county_data(counties, values, column_name, year, output_dir):
     # Read county map from file, and compute county FIPS
     county_map = gpd.read_file(MAP_FILE)
     county_map['fips'] = county_map['STATE'].astype(int) * 1000 + county_map['COUNTY'].astype(int)
-    print(county_map.head())
+    # print(county_map.head())
     assert(len(set(counties)) == len(counties))  # Make sure no duplicate county entries
 
     # Add the variable values to the county map
@@ -39,8 +39,8 @@ def plot_county_data(counties, values, column_name, year, output_dir):
     county_map.plot(column=column_name, ax=ax, legend=True,
                     missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                         "color": "lightgrey",
-                        "edgecolor": "red",
-                        "hatch": "///",
+                        # "edgecolor": "red",
+                        # "hatch": "///",
                         "label": "Missing values",
                     })
     ax.set_title(column_name + ": " + str(year), fontdict={'fontsize': 30})

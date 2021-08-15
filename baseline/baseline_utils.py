@@ -51,7 +51,7 @@ def compute_metrics(pred_i, Y_i):
 # If we want to fix a week, simply make min_week and max_week equal.
 # Zero out all features AFTER this week.
 # TODO - to save time, this could be put inside the DataLoader code
-def mask_end(X, args, min_week, max_week):
+def mask_end(X, counties, county_avg, args, min_week, max_week, device):
     # If min_week is time_intervals, we're not masking any data, so
     # just return the original X
     if min_week == args.time_intervals:
@@ -62,21 +62,40 @@ def mask_end(X, args, min_week, max_week):
     num_vars = n_m + n_w
     batch_size = X.shape[0]
 
-    # Create mask which is 1 for features up to (and incluing) the current
-    # week, and 0 afterwards. Index is 1 based
-    mask = np.zeros((batch_size, num_vars // args.time_intervals, args.time_intervals))
+    # Random boolean Tensor: True if we should mask the example, False otherwise
+    examples_to_mask = (torch.rand((batch_size), device=device, dtype=float) <= args.mask_prob)
+
+    # Create mask which is True (1) for features we want to replace/hide -
+    # e.g. features after the current week. It's False (0) for features
+    # up to (and including) the current week. Index is 1 based.
+    # Initialize the mask to all 0. Then for the examples we want to mask,
+    # set weeks after the "current week" to 1.
+    mask = torch.zeros((batch_size, num_vars // args.time_intervals, args.time_intervals), dtype=bool, device=device)
     if min_week == max_week:
-        mask[:, :, :min_week] = 1
+        mask[examples_to_mask, :, min_week:] = 1
     else:
+        # For each example, randomly select a week, and mask all features after this week
         weeks = np.random.randint(min_week, max_week+1, size=batch_size)
         for i in range(batch_size):
-            mask[i, :, :weeks[i]] = 1
+            if examples_to_mask[i]:
+                mask[i, :, weeks[i]:] = 1
 
-    # "Flatten" mask, and then multiply each feature vector by the mask. The
-    # effect is to zero out all features after the chosen week.
+    # Get historical average features for each county
+    if args.mask_value == "county_avg":
+        county_avg_matrix = torch.empty((batch_size, num_vars), device=device)
+        for i in range(batch_size):
+            county = counties[i].item()
+            county_avg_matrix[i] = county_avg[county][:n_w+n_m]  # Only include time-dependent weather and management features
+
+    # "Flatten" mask. Then update all indices where the mask is 1, and replace them with the county average values or 0.
     mask = mask.reshape((batch_size, num_vars))
-    X[:, :n_w+n_m] = X[:, :n_w+n_m] * mask
+    if args.mask_value == "zero":
+        X[:, :n_w+n_m][mask] = 0
+    elif args.mask_value == "county_avg":
+        X[:, :n_w+n_m][mask] = county_avg_matrix[mask]
+
     return X
+
 
 # If remove_nan_Y is true, we remove all rows where ANY outputs are NaN
 def get_X_Y(data, args, device, remove_nan_Y=False):
@@ -144,11 +163,11 @@ def get_X_Y(data, args, device, remove_nan_Y=False):
     # Standardize each feature (column of X)
     X = (X - X_mean) / (X_std + 1e-10)
 
-    # Check for extreme values in X (after standardization)
-    indices = np.argwhere((X > 100) | (X < -100))
-    for i in range(indices.shape[0]):
-        row, col = indices[i, 0], indices[i, 1]
-        print("!!! Extreme value indices", row, col + 7, "- yr", years[row])
+    # # Check for extreme values in X (after standardization)
+    # indices = np.argwhere((X > 100) | (X < -100))
+    # for i in range(indices.shape[0]):
+    #     row, col = indices[i, 0], indices[i, 1]
+    #     print("!!! Extreme value indices", row, col + 7, "- yr", years[row])
 
     # For now, replace all NA with 0.
     X = np.nan_to_num(X)

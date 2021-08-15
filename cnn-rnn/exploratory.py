@@ -51,7 +51,11 @@ for col_idx in range(2, data.shape[1]):
         if col_idx in PLOT_INDICES:
             visualization_utils.plot_county_data(counties, values, col_name, year,
                                                  os.path.join(PLOT_DIR, "maps"))
-
+            zero_values = np.empty_like(values)
+            zero_values[values == 0] = 0
+            zero_values[values != 0] = np.nan
+            visualization_utils.plot_county_data(counties, zero_values, col_name + "_ZERO_YIELD", year,
+                                                 os.path.join(PLOT_DIR, "maps"))
         non_nan_rows = ~np.isnan(values)
         values = values[non_nan_rows]
         counties = counties[non_nan_rows]

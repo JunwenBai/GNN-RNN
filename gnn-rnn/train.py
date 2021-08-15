@@ -25,6 +25,7 @@ import visualization_utils
 import dgl
 import scipy.sparse as sp
 
+# device = torch.device("cuda:0")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("Device", device)
 sys.path.append('./')
@@ -108,7 +109,7 @@ def load_subtensor(year_XY, year, in_nodes, out_nodes, device):
     batch_counties = counties[out_nodes].int().to(device)
     return batch_inputs, batch_labels, batch_counties
 
-def train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, optimizer, epoch, writer=None):
+def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, cur_step, optimizer, epoch, writer=None):
     print("\n---------------------")
     print("Epoch ", epoch)
     print("---------------------")
@@ -133,7 +134,8 @@ def train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, 
 
             # Randomly mask out some data from the end of the last year in the 5-year sequence,
             # to force model to learn how to make early predictions
-            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], args, args.train_week_start, args.time_intervals)
+            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.train_week_start, args.time_intervals, device)
 
             # If labels are missing in the INPUT to the model (batch_labels_std),
             # replace them with the average for that year
@@ -142,8 +144,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, 
                 for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
                     year_i = (year - seq_years + 1) + i
                     missing_indices = torch.isnan(batch_labels_std[:, i, j])
-                    batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
-
+                    batch_labels_std[missing_indices, i, j] = 0  #(year_avg_Y[year_i][j] - args.means) / args.stds
 
             # # print("Batch inputs", batch_inputs.shape)
             # # print("Batch labels", batch_labels_std.shape)
@@ -216,7 +217,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, 
     return cur_step, metrics_all, results
 
 
-def val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, mode="Val", writer=None):
+def val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, epoch, mode="Val", writer=None):
     print("********************")
     print("Epoch", epoch, mode)
     print("********************")
@@ -242,7 +243,9 @@ def val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, mode=
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
 
             # To simulate early prediction, mask out data starting from the specified "validation_week"
-            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], args, args.validation_week, args.validation_week)
+            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            # batch_inputs = mask_end(batch_inputs, batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
+            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
 
             batch_labels_std = (batch_labels - args.means) / args.stds
 
@@ -313,10 +316,10 @@ def train(args):
     raw_data = np.load(args.data_dir) #load data from the data_dir
     data = raw_data['data']
     
-    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set, year_avg_Y = get_X_Y(data, args, device)
+    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set, county_avg, year_avg_Y = get_X_Y(data, args, device)
     print("Average Y calculated originally")
     for year in year_avg_Y:
-        year_avg_Y[year] = torch.tensor(year_avg_Y[year])
+        year_avg_Y[year] = torch.tensor(year_avg_Y[year], device=device)
     print(year_avg_Y)
     print('=============================================')
     sp_adj = sp.coo_matrix(adj)
@@ -389,14 +392,15 @@ def train(args):
     if not os.path.isfile(results_summary_file):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr'])
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr', path_to_model])
 
     #building the model
     print('building network...')
     in_dim = year_XY[2000][0].shape[-1]
     out_dim = 1
     model = SAGE_RNN(args, in_dim, out_dim).to(device)
-    
+    # model.load_state_dict(torch.load(os.path.join(args.model_dir, "model_"), map_location=device))
+
     #log the learning rate 
     #writer.add_scalar('learning_rate', args.learning_rate)
 
@@ -425,9 +429,9 @@ def train(args):
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
 
     for epoch in range(args.max_epoch):
-        cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, cur_step, optimizer, epoch, writer)
-        val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, "Val", writer)
-        test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, year_avg_Y, epoch, "Test", writer)
+        cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, cur_step, optimizer, epoch, writer)
+        val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, epoch, "Val", writer)
+        test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, epoch, "Test", writer)
 
         # Record epoch metrics in list
         val_rmse = val_metrics['rmse']

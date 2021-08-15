@@ -80,6 +80,9 @@ parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='
 parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
 parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive), and mask out data starting from the random week. Set to args.time_intervals for no masking.")
 parser.add_argument('-validation_week', "--validation_week", default=52, type=int, help="Mask out data starting from this week during validation. Set to args.time_intervals for no masking.")
+parser.add_argument('-mask_prob', "--mask_prob", default=1, type=float, help="Probability of masking. 0 means don't mask any data.")
+parser.add_argument('-mask_value', "--mask_value", choices=['zero', 'county_avg'], default='zero')
+
 
 args = parser.parse_args()
 args.model = "gnn_rnn"

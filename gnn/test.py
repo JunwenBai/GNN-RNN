@@ -13,7 +13,7 @@ import datetime
 from copy import copy, deepcopy
 from model import SAGE
 import random
-from utils import get_X_Y, build_path, mask_end
+from utils import get_X_Y, build_path, mask_end, get_git_revision_hash
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import dgl
@@ -102,9 +102,9 @@ def load_subtensor(year_XY, year, in_nodes, out_nodes, device):
     batch_counties = counties[out_nodes].int().to(device)
     return batch_inputs, batch_labels, batch_counties
 
-def test_sampling(args, model, device, nodeloader, year_XY, mode="Test"):
+def test_sampling(args, model, device, nodeloader, year_XY, county_avg, mode="Test"):
     print("********************")
-    print("Test")
+    print("Test GNN (sampling)")
     print("********************")
     model.eval()
     tot_loss, tot_rmse, tot_r2, tot_corr, tot_mae, tot_mape = 0., 0., 0., 0., 0., 0.
@@ -121,7 +121,8 @@ def test_sampling(args, model, device, nodeloader, year_XY, mode="Test"):
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
 
             # To simulate early prediction, mask out data starting from the specified "validation_week"
-            batch_inputs = mask_end(batch_inputs, args, args.validation_week, args.validation_week)
+            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            batch_inputs = mask_end(batch_inputs, batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
 
             blocks = [block.int().to(device) for block in blocks]
             batch_pred_std = model(blocks, batch_inputs)  #.squeeze(-1)
@@ -171,23 +172,25 @@ def test_sampling(args, model, device, nodeloader, year_XY, mode="Test"):
     return metrics_all, results
 
 
-def test_full_graph(args, model, device, g, year_XY, mode="Test"):
+def full_graph_inference(args, model, device, g, year_XY, county_avg, mode="Test"):
     if mode == "Val":
         year = args.test_year-1
     elif mode == "Test":
         year = args.test_year
     model.eval()
+    print("********************")
+    print("Test GNN (full graph inference)")
+    print("********************")
 
     with torch.no_grad():
-        print("Full graph inference")
         inputs, labels, counties = year_XY[year]
         inputs, labels, counties = inputs.float().to(device), labels.float().to(device), counties.int().to(device)
 
         # To simulate early prediction, mask out data starting from the specified "validation_week"
-        inputs = mask_end(inputs, args, args.validation_week, args.validation_week)
+        inputs = mask_end(inputs, counties, county_avg, args, args.validation_week, args.validation_week, device)
         print("Inputs", inputs.shape, inputs.dtype)
 
-        pred_std, _ = model.inference(g, inputs, args.batch_size, device)
+        pred_std = model.inference(g, inputs, args.batch_size, device)
         pred = pred_std * args.stds + args.means
 
         # Create a dataframe with true vs. predicted yield for each county (so that we can produce maps later)
@@ -225,10 +228,10 @@ def test(args):
     print("RESULTS DIR", results_dir)
 
     # Load data from data_dir
-    raw_data = np.load(args.data_dir) #load data from the data_dir
+    raw_data = np.load(args.data_dir)
     data = raw_data['data']
     
-    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set = get_X_Y(data, args, device)
+    X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set, county_avg = get_X_Y(data, args, device)
     sp_adj = sp.coo_matrix(adj)
     g = dgl.from_scipy(sp_adj)
     
@@ -264,16 +267,26 @@ def test(args):
     out_dim = 1
     model = SAGE(args, in_dim, out_dim).to(device)
     # model = SAGE(args).to(device)
-    model.load_state_dict(torch.load(args.checkpoint_path))
+    model.load_state_dict(torch.load(args.checkpoint_path, map_location=device))
     model.eval()
     
-    if args.test_sampling:
-        test_metrics, test_results = test_sampling(args, model, device, nodeloader, year_XY)
+    if args.full_graph_inference:
+        test_metrics, test_results = full_graph_inference(args, model, device, g, year_XY, county_avg) 
     else:
-        test_metrics, test_results = test_full_graph(args, model, device, g, year_XY) 
-
+        test_metrics, test_results = test_sampling(args, model, device, nodeloader, year_XY, county_avg)
     time_str = str(args.test_year) + "_week_" + str(args.validation_week)
     test_results.to_csv(os.path.join(results_dir, "test_results_" + time_str + ".csv"), index=False)
     visualization_utils.plot_true_vs_predicted(test_results, args.output_names, 
                                                 time_str + "_test", results_dir)
 
+    # Record Git commit and command used, along with final metrics
+    git_commit = get_git_revision_hash()
+    command_string = " ".join(sys.argv)
+    with open(os.path.join(results_dir, "test_summary_" + time_str + ".txt"), 'w') as f:
+        f.write("Algorithm: " + args.model + "\n")
+        f.write("Dataset: " + args.dataset + "\n")
+        f.write("Git commit: " + git_commit + "\n")
+        f.write("Test Command: " + command_string + "\n")
+        f.write("Checkpoint: " + args.checkpoint_path + "\n")
+        f.write("Test (" + time_str + ") | rmse: {}, r2: {}, corr: {}\n".format(test_metrics['rmse'], test_metrics['r2'], test_metrics['corr']))
+ 

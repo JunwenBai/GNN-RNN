@@ -26,7 +26,7 @@ def get_git_revision_hash():
 # If we want to fix a week, simply make min_week and max_week equal.
 # Zero out all features AFTER this week.
 # TODO - to save time, this could be put inside the DataLoader code
-def mask_end(X, args, min_week, max_week):
+def mask_end(X, counties, county_avg, args, min_week, max_week, device):
     # If min_week is time_intervals, we're not masking any data, so
     # just return the original X
     if min_week == args.time_intervals:
@@ -37,30 +37,49 @@ def mask_end(X, args, min_week, max_week):
     num_vars = n_m + n_w
     batch_size = X.shape[0]
 
-    # Create mask which is 1 for features up to (and incluing) the current
-    # week, and 0 afterwards. Index is 1 based
-    mask = np.zeros((batch_size, num_vars // args.time_intervals, args.time_intervals))
+    # Random boolean Tensor: True if we should mask the example, False otherwise
+    examples_to_mask = (torch.rand((batch_size), device=device, dtype=float) <= args.mask_prob)
+
+    # Create mask which is True (1) for features we want to replace/hide -
+    # e.g. features after the current week. It's False (0) for features
+    # up to (and including) the current week. Index is 1 based.
+    # Initialize the mask to all 0. Then for the examples we want to mask,
+    # set weeks after the "current week" to 1.
+    mask = torch.zeros((batch_size, num_vars // args.time_intervals, args.time_intervals), dtype=bool, device=device)
     if min_week == max_week:
-        mask[:, :, :min_week] = 1
+        mask[examples_to_mask, :, min_week:] = 1
     else:
+        # For each example, randomly select a week, and mask all features after this week
         weeks = np.random.randint(min_week, max_week+1, size=batch_size)
         for i in range(batch_size):
-            mask[i, :, :weeks[i]] = 1
+            if examples_to_mask[i]:
+                mask[i, :, weeks[i]:] = 1
 
-    # "Flatten" mask, and then multiply each feature vector by the mask. The
-    # effect is to zero out all features after the chosen week.
+    # Get historical average features for each county
+    if args.mask_value == "county_avg":
+        county_avg_matrix = torch.empty((batch_size, num_vars), device=device)
+        for i in range(batch_size):
+            county = counties[i].item()
+            county_avg_matrix[i] = county_avg[county][:n_w+n_m]  # Only include time-dependent weather and management features
+
+    # "Flatten" mask. Then update all indices where the mask is 1, and replace them with the county average values or 0.
     mask = mask.reshape((batch_size, num_vars))
-    X[:, :n_w+n_m] = X[:, :n_w+n_m] * mask
+    # if examples_to_mask[0]:
+    #     torch.set_printoptions(threshold=10000)
+    #     print("Examples to mask", examples_to_mask)
+    #     print("============================================")
+    #     print("Week", weeks[0])
+    #     print("Mask", mask[0, 0:104])
+    #     if args.mask_value == "county_avg":
+    #         print("County avg", county_avg_matrix[0, 0:104])
+    #     print("X", X[0, 0:104])
+    if args.mask_value == "zero":
+        X[:, :n_w+n_m][mask] = 0
+    elif args.mask_value == "county_avg":
+        X[:, :n_w+n_m][mask] = county_avg_matrix[mask]
+
     return X
-    # X_wm = X[:, :n_w+n_m]
-    # batch_size, num_vars = X_wm.shape
-    # X_wm = X_wm.reshape((batch_size, num_vars / args.time_intervals, args.time_intervals))
-    # print("After reshape", X_wm.shape)
-    # mask = np.zeros_like(X_wm)
-    # X_wm = X_wm * mask
-    # X_wm = X_wm.reshape((batch_size, num_vars))
-    # X[:, :n_w+n_m] = X_wm
-    # return X
+
 
 def get_X_Y(data, args, device):
     if args.data_dir == "soybean_data_full.npz":
@@ -139,14 +158,14 @@ def get_X_Y(data, args, device):
     # Standardize each feature (column of X)
     X = (X - X_mean) / (X_std + 1e-10)
 
-    # Check for extreme values in X (after standardization)
-    indices = np.argwhere((X > 100) | (X < -100))
-    if indices.shape[0] == 0:
-        print('no extreme values in X :)')
-    else:
-        for i in range(indices.shape[0]):
-            row, col = indices[i, 0], indices[i, 1]
-            print("Extreme value indices", row, col + 7, "- yr", years[row])
+    # # Check for extreme values in X (after standardization)
+    # indices = np.argwhere((X > 100) | (X < -100))
+    # if indices.shape[0] == 0:
+    #     print('no extreme values in X :)')
+    # else:
+    #     for i in range(indices.shape[0]):
+    #         row, col = indices[i, 0], indices[i, 1]
+    #         print("Extreme value indices", row, col + 7, "- yr", years[row])
 
     # For now, replace all NA with 0.
     X = np.nan_to_num(X)
@@ -222,21 +241,32 @@ def get_X_Y(data, args, device):
     X_dict = {}
     Y_dict = {}
     year_dict = {}
+    county_dict = {}  # Features per county, over TRAIN years
     for county in county_set:
         X_dict[county] = {}
         Y_dict[county] = {}
+        county_dict[county] = []
     for year in range(min_year, max_year+1):
         year_dict[year] = []
     for county, year, x, y in zip(counties, years, X, Y):
         X_dict[county][year] = x
         Y_dict[county][year] = y
         year_dict[year].append(x)
+        if year < args.test_year - 1:
+            county_dict[county].append(x)
 
     # Compute average features for each year (to use if there's missing data)
     year_avg = {}
     for year in range(min_year, max_year+1):
         year_dict[year] = np.array(year_dict[year])
         year_avg[year] = np.mean(year_dict[year], axis=0)
+
+    # Compute average features per COUNTY (that can be used when we're doing early prediction
+    # and don't have complete weather data)
+    county_avg = {}
+    for county in county_set:
+        county_dict[county] = np.array(county_dict[county])
+        county_avg[county] = torch.tensor(np.nanmean(county_dict[county], axis=0)).to(device)
 
     #### Adjacency ####
     Data = pickle.load(open(args.us_adj_file, 'rb'))
@@ -364,6 +394,10 @@ def get_X_Y(data, args, device):
     counties_train, counties_val, counties_test = np.array(counties_train), np.array(counties_val), np.array(counties_test)
     years_train, years_val, years_test = np.array(years_train), np.array(years_val), np.array(years_test)
 
+    # # Compute average features for each county (on train years)
+    # for county in county_set:
+    #         county_train_rows = X_train[counties_train == args.county_to_plot]
+    # county_train_avg = np.mean(county_train_rows, axis=(0, 1))
 
     '''loc1 = 300
     o1 = order_map[loc1]
@@ -390,4 +424,4 @@ def get_X_Y(data, args, device):
     exit()'''
     ######
 
-    return X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test  # X_train, Y_train, X_val, Y_val, X_test, Y_test
+    return X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test, county_avg  # X_train, Y_train, X_val, Y_val, X_test, Y_test

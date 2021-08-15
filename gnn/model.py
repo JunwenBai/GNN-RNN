@@ -132,6 +132,7 @@ class SAGE(nn.Module):
             self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, args.aggregator_type))
         self.layers.append(dglnn.SAGEConv(self.n_hidden, out_dim, args.aggregator_type))
         self.dropout = nn.Dropout(args.dropout)
+        self.out_dim = out_dim
 
     def forward(self, blocks, x):
         #print("x:", x.shape) # [675, 431]
@@ -166,7 +167,7 @@ class SAGE(nn.Module):
         x = self.cnn(x) # [675, 96]
         nodes = torch.arange(g.number_of_nodes())
         for l, layer in enumerate(self.layers):
-            y = torch.zeros(g.number_of_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes)
+            y = torch.zeros(g.number_of_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.out_dim)
 
             for start in tqdm.trange(0, len(nodes), batch_size):
                 end = start + batch_size
@@ -178,7 +179,7 @@ class SAGE(nn.Module):
                 h_dst = h[:block.number_of_dst_nodes()]
                 h = layer(block, (h, h_dst))
                 if l != len(self.layers) - 1:
-                    h = self.activation(h)
+                    h = F.relu(h)
                     h = self.dropout(h)
 
                 y[start:end] = h.cpu()

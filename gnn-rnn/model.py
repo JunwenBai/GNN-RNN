@@ -225,7 +225,7 @@ class SAGE_RNN(nn.Module):
     def __init__(self, args, in_dim, out_dim):
         super(SAGE_RNN, self).__init__()
         if args.encoder_type == "cnn":
-            self.encoder = CNN(args)
+            self.cnn = CNN(args)
         elif args.encoder_type == "lstm" or args.encoder_type == "gru":
             self.encoder = SingleYearRNN(args)
         else:
@@ -255,7 +255,7 @@ class SAGE_RNN(nn.Module):
         # print("y_pad:", y_pad.shape) # [675, 5, 1]
         hs = []
         for i in range(n_seq+1):
-            h = self.encoder(x[:, i, :]) # [675, 127]
+            h = self.cnn(x[:, i, :]) # [675, 127]
             for l, (layer, block) in enumerate(zip(self.layers, blocks)):
                 # We need to first copy the representation of nodes on the RHS from the
                 # appropriate nodes on the LHS.

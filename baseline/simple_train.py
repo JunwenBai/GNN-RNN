@@ -9,7 +9,7 @@ import visualization_utils
 from baseline_utils import build_path, get_X_Y, get_git_revision_hash, compute_metrics, mask_end
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, Lasso
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.experimental import enable_hist_gradient_boosting 
@@ -43,7 +43,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-dataset', "--dataset", default='soybean', type=str, help='dataset name')
 parser.add_argument('-dd', "--data_dir", default='./data/soybean_data.npz', type=str, help='The data directory')
 parser.add_argument('-test_year', "--test_year", default=2017, type=int, help='test year')
-parser.add_argument('-model', "--model", type=str, choices=['ridge', 'gradient_boosting_regressor', 'mlp'], help="Regression algorithm to use")
+parser.add_argument('-model', "--model", type=str, choices=['ridge', 'lasso', 'gradient_boosting_regressor', 'mlp'], help="Regression algorithm to use")
 # parser.add_argument('-input_scaling', "--input_scaling", default="standard_scaler", choices=['none', 'standard_scaler', 'min_max_scaler'], help="How to scale input features")
 parser.add_argument('-standardize_outputs', "--standardize_outputs", default=False, action='store_true', help="whether to standardize the output variables")
 
@@ -55,7 +55,7 @@ parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, h
 parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
 parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
-parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive), and mask out data starting from the random week. Set to args.time_intervals for no masking.")
+parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive, 1-based indexing), and mask out data after the random week. Set to args.time_intervals for no masking.")
 parser.add_argument('-validation_week', "--validation_week", default=52, type=int, help="Mask out data starting from this week during validation. Set to args.time_intervals for no masking.")
 
 args = parser.parse_args()
@@ -144,6 +144,16 @@ if args.model == 'ridge':
         models = []
         for random_state in SEEDS:
             regression_model = Ridge(alpha=alpha, random_state=random_state).fit(X_train, Y_train_std) # HuberRegressor(alpha=alpha, max_iter=1000).fit(X_train, Y_train)
+            models.append(regression_model)
+        param_string = 'alpha=' + str(alpha)
+        print("Params", param_string)
+        regression_models[param_string] = models
+elif args.model == 'lasso':
+    alphas = [0.01, 0.1, 1, 10, 100, 1000, 10000]  #[0, 0.001, 0.01, 0.1, 1, 10, 100, 1000]
+    for alpha in alphas:
+        models = []
+        for random_state in SEEDS:
+            regression_model = Lasso(alpha=alpha, random_state=random_state).fit(X_train, Y_train_std) # HuberRegressor(alpha=alpha, max_iter=1000).fit(X_train, Y_train)
             models.append(regression_model)
         param_string = 'alpha=' + str(alpha)
         print("Params", param_string)
