@@ -38,7 +38,7 @@ do
             --train_week_start 52 --validation_week 52 \
             --mask_prob 0.5 --mask_value zero
     done
-done'
+done
 
 # python main.py --dataset soybeans_weekly --data_dir /mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly.npz  \
 #     -adj ../map/us_adj.pkl --crop_id_to_fid ../map/soybean_fid_dict.pkl \

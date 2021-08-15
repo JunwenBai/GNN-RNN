@@ -18,13 +18,19 @@ do
     do
         python main.py --dataset soybeans_weekly --data_dir /mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly.npz \
             -adj ../map/us_adj.pkl --crop_id_to_fid ../map/soybean_fid_dict.pkl \
-            --mode train --length 5 -bs 128 --max_epoch 100 --test_year $y --model cnn_rnn \
+            --mode train --length 5 -bs 128 --max_epoch 100 --test_year $y --model $1 \
             -lr $l --eta_min 1e-6 --check_freq 80 --T0 50 -sche step \
             --crop_type soybeans --num_weather_vars 23 --num_management_vars 96 --num_soil_vars 20 --num_extra_vars 6 --soil_depths 6 \
             --combine_weather_and_management --no_management --train_week_start 52 --validation_week 52 \
             --mask_prob 0.5 --mask_value zero
     done 
 done
+
+# Commands: 
+# ./run_train.sh cnn_rnn
+# ./run_train.sh rnn
+
+
 
 # python main.py --dataset soybeans_weekly --data_dir /mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/combined_dataset_weekly.npz \
 #     -adj ../map/us_adj.pkl --crop_id_to_fid ../map/soybean_fid_dict.pkl \
