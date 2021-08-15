@@ -85,14 +85,14 @@ elif args.data_dir.endswith(".csv"):
 else:
     raise ValueError("--data_dir argument must end in .npz, .npy, or .csv")
 print("Raw data shape", data.shape)    
-X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test = get_X_Y(data, args, device="cpu", remove_nan_Y=True)
+X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test, county_avg = get_X_Y(data, args, device="cpu", remove_nan_Y=True)
 Y_train, Y_val, Y_test = Y_train.flatten(), Y_val.flatten(), Y_test.flatten()
 print("After filtering nan", X_train.shape, Y_train.shape)
 
 # Randomly mask out some data from the end of the year to learn how to make early predictions
-X_train = mask_end(X_train, args, args.train_week_start, args.time_intervals)
-X_val = mask_end(X_val, args, args.validation_week, args.validation_week)
-X_test = mask_end(X_test, args, args.validation_week, args.validation_week)
+X_train = mask_end(X_train, counties_train, county_avg, args, args.train_week_start, args.time_intervals, "cpu")
+X_val = mask_end(X_val, counties_val, county_avg, args, args.validation_week, args.validation_week, "cpu")
+X_test = mask_end(X_test, counties_test, county_avg, args, args.validation_week, args.validation_week, "cpu")
 
 # Set up results directory
 param_setting = "{}_testyear-{}".format(

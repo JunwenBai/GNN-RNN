@@ -74,7 +74,6 @@ def mask_end(X, counties, county_avg, args, min_week, max_week, device):
     if min_week == max_week:
         mask[examples_to_mask, :, min_week:] = 1
     else:
-        # For each example, randomly select a week, and mask all features after this week
         weeks = np.random.randint(min_week, max_week+1, size=batch_size)
         for i in range(batch_size):
             if examples_to_mask[i]:
@@ -96,6 +95,38 @@ def mask_end(X, counties, county_avg, args, min_week, max_week, device):
 
     return X
 
+
+# # For each row in X, randomly choose a week between min_week and max_week (inclusive),
+# # where weeks are indexed starting from 1.
+# # If we want to fix a week, simply make min_week and max_week equal.
+# # Zero out all features AFTER this week.
+# # TODO - to save time, this could be put inside the DataLoader code
+# def mask_end(X, args, min_week, max_week):
+#     # If min_week is time_intervals, we're not masking any data, so
+#     # just return the original X
+#     if min_week == args.time_intervals:
+#         return X
+
+#     n_w = args.time_intervals*args.num_weather_vars  # Original: 52*6, new: 52*23
+#     n_m = args.time_intervals*args.num_management_vars
+#     num_vars = n_m + n_w
+#     batch_size = X.shape[0]
+
+#     # Create mask which is 1 for features up to (and incluing) the current
+#     # week, and 0 afterwards. Index is 1 based
+#     mask = np.zeros((batch_size, num_vars // args.time_intervals, args.time_intervals))
+#     if min_week == max_week:
+#         mask[:, :, :min_week] = 1
+#     else:
+#         weeks = np.random.randint(min_week, max_week+1, size=batch_size)
+#         for i in range(batch_size):
+#             mask[i, :, :weeks[i]] = 1
+
+#     # "Flatten" mask, and then multiply each feature vector by the mask. The
+#     # effect is to zero out all features after the chosen week.
+#     mask = mask.reshape((batch_size, num_vars))
+#     X[:, :n_w+n_m] = X[:, :n_w+n_m] * mask
+#     return X
 
 # If remove_nan_Y is true, we remove all rows where ANY outputs are NaN
 def get_X_Y(data, args, device, remove_nan_Y=False):
@@ -192,6 +223,21 @@ def get_X_Y(data, args, device, remove_nan_Y=False):
     args.stds = torch.tensor(Y_std, device=device)
     print("Y (output) means", args.means, "stds", args.stds)
 
+    # Create dictionaries mapping from county to features
+    county_dict = {}  # Features per county, over TRAIN years
+    for county in county_set:
+        county_dict[county] = []
+    for county, year, x, y in zip(counties, years, X, Y):
+        if year < args.test_year - 1:
+            county_dict[county].append(x)
+
+    # Compute average features per COUNTY (that can be used when we're doing early prediction
+    # and don't have complete weather data)
+    county_avg = {}
+    for county in county_set:
+        county_dict[county] = np.array(county_dict[county])
+        county_avg[county] = torch.tensor(np.nanmean(county_dict[county], axis=0)).to(device)
+
     # If requested, remove rows where ANY output is NaN
     if remove_nan_Y:
         not_na = ~(np.isnan(Y).any(axis=1))
@@ -226,4 +272,4 @@ def get_X_Y(data, args, device, remove_nan_Y=False):
     counties_train, counties_val, counties_test = np.array(counties_train), np.array(counties_val), np.array(counties_test)
     years_train, years_val, years_test = np.array(years_train), np.array(years_val), np.array(years_test)
 
-    return X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test  # X_train, Y_train, X_val, Y_val, X_test, Y_test
+    return X_train, Y_train, counties_train, years_train, X_val, Y_val, counties_val, years_val, X_test, Y_test, counties_test, years_test, county_avg  # X_train, Y_train, X_val, Y_val, X_test, Y_test
