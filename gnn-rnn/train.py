@@ -135,22 +135,30 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
             # Randomly mask out some data from the end of the last year in the 5-year sequence,
             # to force model to learn how to make early predictions
             batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
-            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.train_week_start, args.time_intervals, device)
+            # batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.train_week_start, args.time_intervals, device)
 
-            # If labels are missing in the INPUT to the model (batch_labels_std),
-            # replace them with the average for that year
-            seq_years = batch_labels_std.shape[1]
-            for i in range(seq_years - 1):  # Exclude current year
-                for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
-                    year_i = (year - seq_years + 1) + i
-                    missing_indices = torch.isnan(batch_labels_std[:, i, j])
-                    batch_labels_std[missing_indices, i, j] = 0  #(year_avg_Y[year_i][j] - args.means) / args.stds
+            # # If labels are missing in the INPUT to the model (batch_labels_std),
+            # # replace them with the average for that year
+            # seq_years = batch_labels_std.shape[1]
+            # for i in range(seq_years - 1):  # Exclude current year
+            #     for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
+            #         year_i = (year - seq_years + 1) + i
+            #         missing_indices = torch.isnan(batch_labels_std[:, i, j])
+            #         batch_labels_std[missing_indices, i, j] = 0  #(year_avg_Y[year_i][j] - args.means) / args.stds
 
             # # print("Batch inputs", batch_inputs.shape)
             # # print("Batch labels", batch_labels_std.shape)
             # indices_with_nan_labels = torch.isnan(batch_labels_std).any(dim=1).squeeze()
             
             # batch_labels_std[torch.isnan(batch_labels_std)] = args.means[0]  # year_avg_Y
+
+
+
+            # # Quick sanity checking
+            # visualization_utils.sanity_check_input(batch_inputs, batch_input_counties, year)
+            # for i in range(5):
+            #     print(str(year) + ", county " + str(batch_counties[i]) + ": yield = " + batch_labels[i, -1].item())
+            # exit(0)
 
             #print(batch_inputs.shape, batch_labels.shape) # [711, 5, 431] [64, 5]
             blocks = [block.int().to(device) for block in blocks]
@@ -243,20 +251,19 @@ def val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, 
             batch_inputs, batch_labels, batch_counties = load_subtensor(year_XY, year, in_nodes, out_nodes, device)
 
             # To simulate early prediction, mask out data starting from the specified "validation_week"
-            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
-            # batch_inputs = mask_end(batch_inputs, batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
-            batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
+            # batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            # batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.validation_week, args.validation_week, device)
 
             batch_labels_std = (batch_labels - args.means) / args.stds
 
-            # If labels are missing in the INPUT to the model (batch_labels_std),
-            # replace them with the average for that year
-            seq_years = batch_labels_std.shape[1]
-            for i in range(seq_years - 1):  # Exclude current year
-                for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
-                    year_i = (year - seq_years + 1) + i
-                    missing_indices = torch.isnan(batch_labels_std[:, i, j])
-                    batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
+            # # If labels are missing in the INPUT to the model (batch_labels_std),
+            # # replace them with the average for that year
+            # seq_years = batch_labels_std.shape[1]
+            # for i in range(seq_years - 1):  # Exclude current year
+            #     for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
+            #         year_i = (year - seq_years + 1) + i
+            #         missing_indices = torch.isnan(batch_labels_std[:, i, j])
+            #         batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
 
             blocks = [block.int().to(device) for block in blocks]
 
@@ -379,9 +386,9 @@ def train(args):
     if args.no_management:
         param_setting += "_no-management"
 
-    summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
-    model_dir = 'model/{}/{}'.format(args.dataset, param_setting)
-    results_dir = 'results/{}/{}'.format(args.dataset, param_setting)
+    summary_dir = 'summary/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
+    model_dir = 'model/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
+    results_dir = 'results/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
     build_path(summary_dir)
     build_path(model_dir)
     build_path(results_dir)
@@ -392,7 +399,9 @@ def train(args):
     if not os.path.isfile(results_summary_file):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr', path_to_model])
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr', 'path_to_model'])
+    git_commit = get_git_revision_hash()
+    command_string = " ".join(sys.argv)
 
     #building the model
     print('building network...')
@@ -405,7 +414,7 @@ def train(args):
     #writer.add_scalar('learning_rate', args.learning_rate)
 
     #use the Adam optimizer 
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)  #1e-5)
     if args.scheduler == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, eta_min=args.eta_min, T_0=args.T0, T_mult=args.T_mult)
     elif args.scheduler == "step":
@@ -462,14 +471,52 @@ def train(args):
             visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", results_dir)
             visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", results_dir)
 
+            # Record Git commit and command used, along with current metrics
+            with open(os.path.join(results_dir, "summary_current.txt"), 'w') as f:
+                f.write("Algorithm: " + args.model + "\n")
+                f.write("Dataset: " + args.dataset + "\n")
+                f.write("Git commit: " + git_commit + "\n")
+                f.write("Command: " + command_string + "\n")
+                f.write("Final model path: " + best_model_path + "\n\n")
+                f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
+                f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
+
+        if epoch % 5 == 0 or epoch == args.max_epoch - 1:
+            # Plot RMSE over time
+            epoch_list = range(len(train_rmse_list))
+            plots = []
+            train_rmse_plot, = plt.plot(epoch_list, train_rmse_list, color='blue', label='Train RMSE (1981-' + str(args.test_year - 2) + ')')
+            val_rmse_plot, = plt.plot(epoch_list, val_rmse_list, color='orange', label='Validation RMSE (' + str(args.test_year - 1) + ')')
+            test_rmse_plot, = plt.plot(epoch_list, test_rmse_list, color='red', label='Test RMSE (' + str(args.test_year) + ')')
+            plots.append(train_rmse_plot)
+            plots.append(val_rmse_plot)
+            plots.append(test_rmse_plot)
+            plt.legend(handles=plots)
+            plt.xlabel('Epoch #')
+            plt.ylabel('RMSE')
+            plt.savefig(os.path.join(results_dir, "metrics_rmse.png"))
+            plt.close()
+
+            # Plot R2 over time
+            plots = []
+            train_r2_plot, = plt.plot(epoch_list, train_r2_list, color='blue', label='Train R^2 (1981-' + str(args.test_year - 2) + ')')
+            val_r2_plot, = plt.plot(epoch_list, val_r2_list, color='orange', label='Validation R^2 (' + str(args.test_year - 1) + ')')
+            test_r2_plot, = plt.plot(epoch_list, test_r2_list, color='red', label='Test R^2 (' + str(args.test_year) + ')')
+            plots.append(train_r2_plot)
+            plots.append(val_r2_plot)
+            plots.append(test_r2_plot)
+            plt.legend(handles=plots)
+            plt.xlabel('Epoch #')
+            plt.ylabel('R^2')
+            plt.savefig(os.path.join(results_dir, "metrics_r2.png"))
+            plt.close()
+
         print("BEST Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         print("BEST Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
         if scheduler is not None and epoch < args.sleep-1:
             scheduler.step()
     
     # Record final results
-    git_commit = get_git_revision_hash()
-    command_string = " ".join(sys.argv)
     print("Command used:", command_string)
     print("Model dir:", model_dir)    
     with open(results_summary_file, mode='a+') as f:
@@ -479,7 +526,7 @@ def train(args):
                              str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr'], best_model_path])
 
     # Record Git commit and command used, along with final metrics
-    with open(os.path.join(results_dir, "summary.txt"), 'w') as f:
+    with open(os.path.join(results_dir, "summary_FINAL.txt"), 'w') as f:
         f.write("Algorithm: " + args.model + "\n")
         f.write("Dataset: " + args.dataset + "\n")
         f.write("Git commit: " + git_commit + "\n")
@@ -487,32 +534,4 @@ def train(args):
         f.write("Final model path: " + best_model_path + "\n\n")
         f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
- 
-    # Plot RMSE over time
-    epoch_list = range(len(train_rmse_list))
-    plots = []
-    train_rmse_plot, = plt.plot(epoch_list, train_rmse_list, color='blue', label='Train RMSE (1981-' + str(args.test_year - 2) + ')')
-    val_rmse_plot, = plt.plot(epoch_list, val_rmse_list, color='orange', label='Validation RMSE (' + str(args.test_year - 1) + ')')
-    test_rmse_plot, = plt.plot(epoch_list, test_rmse_list, color='red', label='Test RMSE (' + str(args.test_year) + ')')
-    plots.append(train_rmse_plot)
-    plots.append(val_rmse_plot)
-    plots.append(test_rmse_plot)
-    plt.legend(handles=plots)
-    plt.xlabel('Epoch #')
-    plt.ylabel('RMSE')
-    plt.savefig(os.path.join(results_dir, "metrics_rmse.png"))
-    plt.close()
 
-    # Plot R2 over time
-    plots = []
-    train_r2_plot, = plt.plot(epoch_list, train_r2_list, color='blue', label='Train R^2 (1981-' + str(args.test_year - 2) + ')')
-    val_r2_plot, = plt.plot(epoch_list, val_r2_list, color='orange', label='Validation R^2 (' + str(args.test_year - 1) + ')')
-    test_r2_plot, = plt.plot(epoch_list, test_r2_list, color='red', label='Test R^2 (' + str(args.test_year) + ')')
-    plots.append(train_r2_plot)
-    plots.append(val_r2_plot)
-    plots.append(test_r2_plot)
-    plt.legend(handles=plots)
-    plt.xlabel('Epoch #')
-    plt.ylabel('R^2')
-    plt.savefig(os.path.join(results_dir, "metrics_r2.png"))
-    plt.close()

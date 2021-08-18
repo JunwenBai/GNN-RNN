@@ -346,7 +346,7 @@ def train(args):
     #writer.add_scalar('learning_rate', args.learning_rate)
 
     #use the Adam optimizer 
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     if args.scheduler == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, eta_min=args.eta_min, T_0=args.T0, T_mult=args.T_mult)
     elif args.scheduler == "step":
