@@ -122,7 +122,11 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
     result_dfs = []
 
     n_batch = 0
-    for year in list(year_XY.keys()):
+
+    # Generate random order of years
+    all_years = year_XY.keys()
+    random.shuffle(all_years)
+    for year in all_years:  # list(year_XY.keys()):
         if year == args.test_year or year == args.test_year-1: 
             continue
 
@@ -350,6 +354,8 @@ def train(args):
     year_XY = {}
     l = args.length
     num_nan_distribution = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+
+    # Construct 5-year sequences for each county/year
     for year in range(min_year+l-1, max_year+1):
         X_seqs = []
         Y_seqs = []
