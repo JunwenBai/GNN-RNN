@@ -330,7 +330,7 @@ def train(args):
     print(year_avg_Y)
     print('=============================================')
     sp_adj = sp.coo_matrix(adj)
-    g = dgl.from_scipy(sp_adj)  #.to(device)
+    g = dgl.from_scipy(sp_adj).to(device)
     
     #print(max(np.sum(adj, axis=1))) # 10
 
@@ -343,8 +343,8 @@ def train(args):
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
-        num_workers = 0 #,
-        # device=device
+        num_workers = 0,
+        device=device
     )
 
     year_XY = {}
