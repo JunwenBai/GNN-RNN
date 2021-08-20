@@ -124,8 +124,9 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
     n_batch = 0
 
     # Generate random order of years
-    all_years = year_XY.keys()
-    random.shuffle(all_years)
+    all_years = list(year_XY.keys())
+    np.random.shuffle(all_years)
+    # print("All years", all_years)
     for year in all_years:  # list(year_XY.keys()):
         if year == args.test_year or year == args.test_year-1: 
             continue
