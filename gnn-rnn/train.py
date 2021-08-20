@@ -134,7 +134,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
 
             # Randomly mask out some data from the end of the last year in the 5-year sequence,
             # to force model to learn how to make early predictions
-            batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
+            # batch_input_counties = year_XY[year][2][in_nodes].int().to(device)
             # batch_inputs[:, -1, :] = mask_end(batch_inputs[:, -1, :], batch_input_counties, county_avg, args, args.train_week_start, args.time_intervals, device)
 
             # # If labels are missing in the INPUT to the model (batch_labels_std),
@@ -144,7 +144,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
             #     for j in range(batch_labels_std.shape[2]):  # Loop through each output variable (crop type)
             #         year_i = (year - seq_years + 1) + i
             #         missing_indices = torch.isnan(batch_labels_std[:, i, j])
-            #         batch_labels_std[missing_indices, i, j] = 0  #(year_avg_Y[year_i][j] - args.means) / args.stds
+            #         batch_labels_std[missing_indices, i, j] = (year_avg_Y[year_i][j] - args.means) / args.stds
 
             # # print("Batch inputs", batch_inputs.shape)
             # # print("Batch labels", batch_labels_std.shape)
@@ -155,9 +155,9 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
 
 
             # # Quick sanity checking
-            # visualization_utils.sanity_check_input(batch_inputs, batch_input_counties, year)
+            # visualization_utils.sanity_check_input(batch_inputs, batch_input_counties, year, args, X_mean, X_std)
             # for i in range(5):
-            #     print(str(year) + ", county " + str(batch_counties[i]) + ": yield = " + batch_labels[i, -1].item())
+            #     print(str(year) + ", county " + str(batch_counties[i]) + ": yield = " + str(batch_labels[i, -1].item()))
             # exit(0)
 
             #print(batch_inputs.shape, batch_labels.shape) # [711, 5, 431] [64, 5]
@@ -191,13 +191,13 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
         
             if writer is not None:
                 lr = optimizer.param_groups[0]['lr']
-            writer.add_scalar("lr", lr, cur_step)
-            writer.add_scalar("Train/loss", loss.item(), cur_step)
-            writer.add_scalar("Train/rmse", metrics_batch['rmse'], cur_step)
-            writer.add_scalar("Train/r2", metrics_batch['r2'], cur_step)
-            writer.add_scalar("Train/corr", metrics_batch['corr'], cur_step)
-            writer.add_scalar("Train/mae", metrics_batch['mae'], cur_step)
-            writer.add_scalar("Train/mape", metrics_batch['mape'], cur_step)
+                writer.add_scalar("lr", lr, cur_step)
+                writer.add_scalar("Train/loss", loss.item(), cur_step)
+                writer.add_scalar("Train/rmse", metrics_batch['rmse'], cur_step)
+                writer.add_scalar("Train/r2", metrics_batch['r2'], cur_step)
+                writer.add_scalar("Train/corr", metrics_batch['corr'], cur_step)
+                writer.add_scalar("Train/mae", metrics_batch['mae'], cur_step)
+                writer.add_scalar("Train/mape", metrics_batch['mape'], cur_step)
             cur_step += 1
 
             # Create a dataframe with true vs. predicted yield (so that we can produce maps later)
@@ -330,7 +330,7 @@ def train(args):
     print(year_avg_Y)
     print('=============================================')
     sp_adj = sp.coo_matrix(adj)
-    g = dgl.from_scipy(sp_adj)
+    g = dgl.from_scipy(sp_adj)  #.to(device)
     
     #print(max(np.sum(adj, axis=1))) # 10
 
@@ -343,7 +343,8 @@ def train(args):
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
-        num_workers = 0,
+        num_workers = 0 #,
+        # device=device
     )
 
     year_XY = {}
@@ -381,8 +382,8 @@ def train(args):
     print("New avg Y")
     print(year_avg_Y_new)
 
-    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.encoder_type, args.train_week_start, args.length, args.seed)
+    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_etamin-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.eta_min, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.encoder_type, args.train_week_start, args.length, args.seed)
     if args.no_management:
         param_setting += "_no-management"
 
@@ -395,7 +396,7 @@ def train(args):
     writer = SummaryWriter(log_dir=summary_dir)
 
     # Summary csv file of all results. Create this if it doesn't exist
-    results_summary_file = os.path.join('results/results_summary.csv')
+    results_summary_file = 'results/{}/{}/results_summary.csv'.format(args.dataset, args.test_year)
     if not os.path.isfile(results_summary_file):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -438,9 +439,12 @@ def train(args):
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
 
     for epoch in range(args.max_epoch):
+        epoch_start = time()
         cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, cur_step, optimizer, epoch, writer)
         val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, epoch, "Val", writer)
         test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, epoch, "Test", writer)
+        epoch_time =  time() - epoch_start
+        print("Epoch finished in", epoch_time)
 
         # Record epoch metrics in list
         val_rmse = val_metrics['rmse']

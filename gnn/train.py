@@ -147,13 +147,13 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, cur_step, 
 
             all_pred.append(batch_pred)
             all_Y.append(batch_labels)
-            metrics = eval(batch_pred, batch_labels, args)
+            metrics_batch = eval(batch_pred, batch_labels, args)
             tot_loss += loss.item()
-            tot_rmse += metrics['rmse']
-            tot_r2 += metrics['r2']
-            tot_corr += metrics['corr']
-            tot_mae += metrics['mae']
-            tot_mape += metrics['mape']
+            # tot_rmse += metrics['rmse']
+            # tot_r2 += metrics['r2']
+            # tot_corr += metrics['corr']
+            # tot_mae += metrics['mae']
+            # tot_mape += metrics['mape']
 
             loss.backward()
             optimizer.step()
@@ -162,18 +162,18 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, cur_step, 
             if n_batch % args.check_freq == 0:
                 print("### batch ", n_batch-1)
                 print("loss: {}\nrmse: {}\t r2: {}\t corr: {}\n mae: {}\t mape: {}".format(
-                    tot_loss/n_batch, tot_rmse/n_batch, tot_r2/n_batch, tot_corr/n_batch, tot_mae/n_batch, tot_mape/n_batch)
+                    loss.item(), metrics_batch['rmse'], metrics_batch['r2'], metrics_batch['corr'], metrics_batch['mae'], metrics_batch['mape'])
                 )
         
             if writer is not None:
                 lr = optimizer.param_groups[0]['lr']
                 writer.add_scalar("lr", lr, cur_step)
-                writer.add_scalar("Train/loss", tot_loss/n_batch, cur_step)
-                writer.add_scalar("Train/rmse", tot_rmse/n_batch, cur_step)
-                writer.add_scalar("Train/r2", tot_r2/n_batch, cur_step)
-                writer.add_scalar("Train/corr", tot_corr/n_batch, cur_step)
-                writer.add_scalar("Train/mae", tot_mae/n_batch, cur_step)
-                writer.add_scalar("Train/mape", tot_mape/n_batch, cur_step)
+                writer.add_scalar("Train/loss", loss.item(), cur_step)
+                writer.add_scalar("Train/rmse", metrics_batch['rmse'], cur_step)
+                writer.add_scalar("Train/r2", metrics_batch['r2'], cur_step)
+                writer.add_scalar("Train/corr", metrics_batch['corr'], cur_step)
+                writer.add_scalar("Train/mae", metrics_batch['mae'], cur_step)
+                writer.add_scalar("Train/mape", metrics_batch['mape'], cur_step)
             cur_step += 1
 
             # Create a dataframe with true vs. predicted yield (so that we can produce maps later)
@@ -287,8 +287,9 @@ def train(args):
     X_dict, Y_dict, avail_dict, adj, order_map, min_year, max_year, county_set, county_avg = get_X_Y(data, args, device)
 
     sp_adj = sp.coo_matrix(adj)
-    g = dgl.from_scipy(sp_adj)
-    
+    g = dgl.from_scipy(sp_adj).to(device)
+
+
     #print(max(np.sum(adj, axis=1))) # 10
 
     N = len(adj)
@@ -296,11 +297,13 @@ def train(args):
     nodeloader = dgl.dataloading.NodeDataLoader(
         g,
         range(N),
+        # torch.tensor(list(range(N)), device=device),  #.to(device),
         sampler,
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False,
         num_workers = 0,
+        device=device
     )
 
     year_XY = {}
@@ -315,15 +318,15 @@ def train(args):
         X, Y, counties = torch.tensor(X), torch.tensor(Y), torch.tensor(counties)
         year_XY[year] = (X, Y, counties)
 
-    param_setting = "gnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_testyear-{}_aggregator-{}_trainweekstart-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.test_year, args.aggregator_type, args.train_week_start, args.length, args.seed)
+    param_setting = "gnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_dropout-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.lrsteps, args.gamma, args.dropout, args.test_year, args.aggregator_type, args.encoder_type, args.train_week_start, args.length, args.seed)
     if args.no_management:
         param_setting += "_no-management"
 
     # Directories to store TensorBoard summary, model params, and results
-    summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
-    model_dir = 'model/{}/{}'.format(args.dataset, param_setting)
-    results_dir = 'results/{}/{}'.format(args.dataset, param_setting)
+    summary_dir = 'summary/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
+    model_dir = 'model/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
+    results_dir = 'results/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
     build_path(summary_dir)
     build_path(model_dir)
     build_path(results_dir)
@@ -335,6 +338,8 @@ def train(args):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'val_year', 'val_rmse', 'val_r2', 'val_corr', 'test_year', 'test_rmse', 'test_r2', 'test_corr', 'path_to_model'])
+    git_commit = get_git_revision_hash()
+    command_string = " ".join(sys.argv)
 
     #building the model
     print('building network...')
@@ -350,7 +355,7 @@ def train(args):
     if args.scheduler == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, eta_min=args.eta_min, T_0=args.T0, T_mult=args.T_mult)
     elif args.scheduler == "step":
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.max_epoch//4, 0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lrsteps, args.gamma)  #args.max_epoch//4, 0.5)
     elif args.scheduler == "const":
         scheduler = None
     else:
@@ -370,9 +375,12 @@ def train(args):
     train_rmse_list, val_rmse_list, test_rmse_list, train_r2_list, val_r2_list, test_r2_list = [], [], [], [], [], []
 
     for epoch in range(args.max_epoch):
+        epoch_start = time()
         cur_step, train_metrics, train_results = train_epoch(args, model, device, nodeloader, year_XY, county_avg, cur_step, optimizer, epoch, writer)
         val_metrics, val_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, epoch, "Val", writer)
         test_metrics, test_results = val_epoch(args, model, device, nodeloader, year_XY, county_avg, epoch, "Test", writer)
+        epoch_time =  time() - epoch_start
+        print("Epoch finished in", epoch_time)
 
         # Record epoch metrics in list
         val_rmse = val_metrics['rmse']
@@ -404,6 +412,46 @@ def train(args):
             visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", results_dir)
             visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", results_dir)
 
+            # Record Git commit and command used, along with current metrics
+            with open(os.path.join(results_dir, "summary_current.txt"), 'w') as f:
+                f.write("Algorithm: " + args.model + "\n")
+                f.write("Dataset: " + args.dataset + "\n")
+                f.write("Git commit: " + git_commit + "\n")
+                f.write("Command: " + command_string + "\n")
+                f.write("Final model path: " + best_model_path + "\n\n")
+                f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
+                f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
+
+        if epoch % 5 == 0 or epoch == args.max_epoch - 1:
+            # Plot RMSE over time
+            epoch_list = range(len(train_rmse_list))
+            plots = []
+            train_rmse_plot, = plt.plot(epoch_list, train_rmse_list, color='blue', label='Train RMSE (1981-' + str(args.test_year - 2) + ')')
+            val_rmse_plot, = plt.plot(epoch_list, val_rmse_list, color='orange', label='Validation RMSE (' + str(args.test_year - 1) + ')')
+            test_rmse_plot, = plt.plot(epoch_list, test_rmse_list, color='red', label='Test RMSE (' + str(args.test_year) + ')')
+            plots.append(train_rmse_plot)
+            plots.append(val_rmse_plot)
+            plots.append(test_rmse_plot)
+            plt.legend(handles=plots)
+            plt.xlabel('Epoch #')
+            plt.ylabel('RMSE')
+            plt.savefig(os.path.join(results_dir, "metrics_rmse.png"))
+            plt.close()
+
+            # Plot R2 over time
+            plots = []
+            train_r2_plot, = plt.plot(epoch_list, train_r2_list, color='blue', label='Train R^2 (1981-' + str(args.test_year - 2) + ')')
+            val_r2_plot, = plt.plot(epoch_list, val_r2_list, color='orange', label='Validation R^2 (' + str(args.test_year - 1) + ')')
+            test_r2_plot, = plt.plot(epoch_list, test_r2_list, color='red', label='Test R^2 (' + str(args.test_year) + ')')
+            plots.append(train_r2_plot)
+            plots.append(val_r2_plot)
+            plots.append(test_r2_plot)
+            plt.legend(handles=plots)
+            plt.xlabel('Epoch #')
+            plt.ylabel('R^2')
+            plt.savefig(os.path.join(results_dir, "metrics_r2.png"))
+            plt.close()
+
         print("BEST Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         print("BEST Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
         if scheduler is not None:
@@ -411,8 +459,6 @@ def train(args):
 
 
     # Record final results
-    git_commit = get_git_revision_hash()
-    command_string = " ".join(sys.argv)
     print("Command used:", command_string)
     print("Model dir:", model_dir)    
     with open(results_summary_file, mode='a+') as f:
@@ -422,7 +468,7 @@ def train(args):
                              str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr'], best_model_path])
 
     # Record Git commit and command used, along with final metrics
-    with open(os.path.join(results_dir, "summary.txt"), 'w') as f:
+    with open(os.path.join(results_dir, "summary_FINAL.txt"), 'w') as f:
         f.write("Algorithm: " + args.model + "\n")
         f.write("Dataset: " + args.dataset + "\n")
         f.write("Git commit: " + git_commit + "\n")

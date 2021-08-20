@@ -173,28 +173,31 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
     plt.close()
 
 
-def sanity_check_input(X, counties, year, args, output_dir="exploratory"):
+def sanity_check_input(X, counties, year, args, X_mean, X_std, output_dir="exploratory"):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+
     n_w = args.time_intervals*args.num_weather_vars 
     print("X shape", X.shape)
+    X = (X * X_std) + X_mean
+
     weather_indices = [0, 2, 3, 4]  # ppt, tmax, tmean, tmin
     weather_vars = ["ppt", "tmax", "tmean", "tmin"]
     for i in range(0, 3):  # X.shape[0]:
         for j in range(0, 5):
-            X_w = X[i, j, :n_w].reshape(args.num_weather_vars, args.time_intervals)         
+            X_w = X[i, j, :n_w].reshape(args.num_weather_vars, args.time_intervals)      
             current_county = counties[i].item()
             current_year = year - 4 + j
             fig, axeslist = plt.subplots(2, 2, figsize=(10, 10), squeeze=False)
-            fig.suptitle('Weather vars (z-scores relative to national avg): county ' + str(current_county) + ', year ' + str(current_year))
+            fig.suptitle('Weather vars: county ' + str(current_county) + ', year ' + str(current_year))
             weeks = list(range(1, 53))
             for k in range(len(weather_indices)):
                 ax = axeslist.ravel()[k]
                 ax.plot(weeks, X_w[weather_indices[k], :])
                 ax.set(xlabel='Week', ylabel=weather_vars[k], title=weather_vars[k])
-        plt.tight_layout()
-        fig.subplots_adjust(top=0.90)
-        plt.savefig(os.path.join(output_dir, "weather_vars_county_" + str(current_county) + "_year_" + str(current_year) + ".png"))
-        plt.close()           
+            plt.tight_layout()
+            fig.subplots_adjust(top=0.90)
+            plt.savefig(os.path.join(output_dir, "weather_vars_county_" + str(current_county) + "_year_" + str(current_year) + ".png"))
+            plt.close()           
 
 

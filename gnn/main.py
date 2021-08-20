@@ -58,6 +58,8 @@ parser.add_argument('-c2', "--c2", default=1.0, type=float, help='c2')
 parser.add_argument('-mode', "--mode", type=str, help='training/test mode')
 parser.add_argument('-sche', "--scheduler", default='cosine', choices=['cosine', 'step', 'plateau', 'exp', 'const'], help='lr scheduler')
 parser.add_argument('-exp_gamma', "--exp_gamma", default=0.98, type=float, help='exp lr decay gamma')
+parser.add_argument('-gamma', "--gamma", default=0.5, type=float, help='StepLR decay')
+parser.add_argument('-lrsteps', "--lrsteps", default=50, type=int, help='StepLR steps')
 
 parser.add_argument('-clip_grad', "--clip_grad", default=10.0, type=float, help='clip_grad')
 
@@ -66,6 +68,7 @@ parser.add_argument('-n_layers', "--n_layers", default=2, type=int, help='GraphS
 parser.add_argument('-dropout', "--dropout", default=0.5, type=float, help='dropout')
 parser.add_argument('-aggregator_type', "--aggregator_type", default="mean", choices=["mean", "gcn", "pool", "lstm"])
 parser.add_argument('-full_graph_inference', "--full_graph_inference", default=False, action='store_true', help='Whether to do inference on whole graph. Only used in test.py')
+parser.add_argument('-encoder_type', "--encoder_type", default="cnn", choices=["cnn", "smaller_cnn"])
 
 # Added: dataset params
 parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sorghum", "soybeans", "spring_wheat", "winter_wheat"])
