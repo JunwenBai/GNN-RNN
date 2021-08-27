@@ -149,11 +149,11 @@ def test_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y,
 
             batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
             batch_pred = batch_pred_std * args.stds + args.means
-            loss = loss_fn(batch_pred, batch_labels[:, -1])
+            loss = loss_fn(batch_pred[:, -1], batch_labels[:, -1])
 
-            all_pred.append(batch_pred)
+            all_pred.append(batch_pred[:, -1])
             all_Y.append(batch_labels[:, -1])
-            metrics = eval(batch_pred, batch_labels[:, -1], args)
+            metrics = eval(batch_pred[:, -1], batch_labels[:, -1], args)
             tot_loss += loss.item()
             tot_rmse += metrics['rmse']
             tot_r2 += metrics['r2']
@@ -167,7 +167,7 @@ def test_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y,
                             "year": [year] * batch_counties.shape[0]}
             for i in range(batch_labels.shape[2]):
                 output_name = args.output_names[i]
-                result_df_dict["predicted_" + output_name] = batch_pred[:, i].detach().cpu().numpy().tolist()
+                result_df_dict["predicted_" + output_name] = batch_pred[:, -1, i].detach().cpu().numpy().tolist()
                 result_df_dict["true_" + output_name] = batch_labels[:, -1, i].detach().cpu().numpy().tolist()
             result_dfs.append(pd.DataFrame(result_df_dict))
 

@@ -73,14 +73,23 @@ def eval(pred, Y, args):
 
     return metrics
 
-def loss_fn(pred, Y, mode="logcosh"):
+# pred, Y can be 2D or 3D, but the last dimension is the "output" dimension. We take the average loss across all outputs.
+def loss_fn(pred, Y, args, mode="logcosh"):
     # Remove entries where Y is NA
+    # print("Loss fn", pred.shape, Y.shape)
+    Y = torch.reshape(Y, (-1, Y.shape[-1]))
+    pred = torch.reshape(pred, (-1, pred.shape[-1]))
     not_na = ~torch.isnan(Y)
     pred = pred[not_na]
     Y = Y[not_na]
     # if Y.shape[0] < 1:
     #     return torch.tensor(0)
 
+    # Standardize based on mean/std of each output (crop type)
+    Y = (Y - args.means) / args.stds
+    pred = (pred - args.means) / args.stds
+
+    # TODO Compute loss for each output
     if mode == "huber":
         # huber loss
         loss = huber_fn(pred, Y)
@@ -126,7 +135,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
     # Generate random order of years
     all_years = list(year_XY.keys())
     np.random.shuffle(all_years)
-    # print("All years", all_years)
+    print("All years", all_years)
     for year in all_years:  # list(year_XY.keys()):
         if year == args.test_year or year == args.test_year-1: 
             continue
@@ -176,16 +185,19 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
             #     print("Corresponding input")
             #     print(year_XY[year][np.isnan(batch_pred.squeeze())])
 
-            loss = loss_fn(batch_pred, batch_labels[:, -1])
+            # loss = loss_fn(batch_pred, batch_labels[:, -1])
+
+            loss = loss_fn(batch_pred[:, :args.length-1, :], batch_labels[:, :args.length-1, :], args) * args.c1 + \
+                   loss_fn(batch_pred[:, -1, :], batch_labels[:, -1, :], args) * args.c2
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             n_batch += 1
 
             # Record values and metrics
-            all_pred.append(batch_pred)
+            all_pred.append(batch_pred[:, -1])
             all_Y.append(batch_labels[:, -1])
-            metrics_batch = eval(batch_pred, batch_labels[:, -1], args)
+            metrics_batch = eval(batch_pred[:, -1], batch_labels[:, -1], args)
             tot_loss += loss.item()
 
             if n_batch % args.check_freq == 0:
@@ -210,7 +222,7 @@ def train_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y
                               "year": [year] * batch_counties.shape[0]}
             for i in range(batch_labels.shape[2]):
                 output_name = args.output_names[i]
-                result_df_dict["predicted_" + output_name] = batch_pred[:, i].detach().cpu().numpy().tolist()
+                result_df_dict["predicted_" + output_name] = batch_pred[:, -1, i].detach().cpu().numpy().tolist()
                 result_df_dict["true_" + output_name] = batch_labels[:, -1, i].detach().cpu().numpy().tolist()
             result_dfs.append(pd.DataFrame(result_df_dict))
 
@@ -274,11 +286,11 @@ def val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, 
 
             batch_pred_std = model(blocks, batch_inputs, batch_labels_std[:, :-1]) #.squeeze(-1)
             batch_pred = batch_pred_std * args.stds + args.means
-            loss = loss_fn(batch_pred, batch_labels[:, -1])
+            loss = loss_fn(batch_pred[:, -1], batch_labels[:, -1], args)
 
-            all_pred.append(batch_pred)
+            all_pred.append(batch_pred[:, -1])
             all_Y.append(batch_labels[:, -1])
-            metrics = eval(batch_pred, batch_labels[:, -1], args)
+            metrics = eval(batch_pred[:, -1], batch_labels[:, -1], args)
             tot_loss += loss.item()
             tot_rmse += metrics['rmse']
             tot_r2 += metrics['r2']
@@ -292,7 +304,7 @@ def val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, 
                             "year": [year] * batch_counties.shape[0]}
             for i in range(batch_labels.shape[2]):
                 output_name = args.output_names[i]
-                result_df_dict["predicted_" + output_name] = batch_pred[:, i].detach().cpu().numpy().tolist()
+                result_df_dict["predicted_" + output_name] = batch_pred[:, -1, i].detach().cpu().numpy().tolist()
                 result_df_dict["true_" + output_name] = batch_labels[:, -1, i].detach().cpu().numpy().tolist()
             result_dfs.append(pd.DataFrame(result_df_dict))
 
@@ -322,6 +334,7 @@ def val_epoch(args, model, device, nodeloader, year_XY, county_avg, year_avg_Y, 
 
 def train(args):
     print('reading npy...')
+    torch.set_num_threads(8)
     np.random.seed(args.seed) # set the random seed of numpy
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
@@ -389,10 +402,13 @@ def train(args):
     print("New avg Y")
     print(year_avg_Y_new)
 
-    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_etamin-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_seed-{}".format(
-        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.eta_min, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.encoder_type, args.train_week_start, args.length, args.seed)
+    param_setting = "gnn-rnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_etamin-{}_step-{}_gamma-{}_dropout-{}_sleep-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_weightdecay-{}_seed-{}".format(
+        args.batch_size, args.learning_rate, args.max_epoch, args.scheduler, args.T0, args.eta_min, args.lrsteps, args.gamma, args.dropout, args.sleep, args.test_year, args.aggregator_type, args.encoder_type, args.train_week_start, args.length, args.weight_decay, args.seed)
     if args.no_management:
         param_setting += "_no-management"
+    if args.checkpoint_path != "./ckpt":
+        param_setting += ("checkpoint-" + args.checkpoint_path)
+        print("Checkpoint:", args.checkpoint_path)
 
     summary_dir = 'summary/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
     model_dir = 'model/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
@@ -416,7 +432,10 @@ def train(args):
     in_dim = year_XY[2000][0].shape[-1]
     out_dim = 1
     model = SAGE_RNN(args, in_dim, out_dim).to(device)
-    # model.load_state_dict(torch.load(os.path.join(args.model_dir, "model_"), map_location=device))
+    # model.load_state_dict(torch.load(args.checkpoint_path, map_location=device))
+    # print("Loaded state dict")
+
+    # model.load_state_dict(torch.load(os.path.join(model_dir, args.model_filename), map_location=device))
 
     #log the learning rate 
     #writer.add_scalar('learning_rate', args.learning_rate)
@@ -478,7 +497,7 @@ def train(args):
             test_results.to_csv(os.path.join(results_dir, "test_results.csv"), index=False)
 
             # Plot results
-            visualization_utils.plot_true_vs_predicted(train_results[train_results["year"] == 1986], args.output_names, "1986_train", results_dir)
+            # visualization_utils.plot_true_vs_predicted(train_results[train_results["year"] == 1986], args.output_names, "1986_train", results_dir)
             visualization_utils.plot_true_vs_predicted(val_results, args.output_names, str(args.test_year - 1) + "_val", results_dir)
             visualization_utils.plot_true_vs_predicted(test_results, args.output_names, str(args.test_year) + "_test", results_dir)
 
@@ -491,6 +510,12 @@ def train(args):
                 f.write("Final model path: " + best_model_path + "\n\n")
                 f.write("BEST Val (" + str(args.test_year - 1) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_val['rmse'], best_val['r2'], best_val['corr']))
                 f.write("BEST Test (" + str(args.test_year) + ") | rmse: {}, r2: {}, corr: {}\n".format(best_test['rmse'], best_test['r2'], best_test['corr']))
+
+            with open(os.path.join(results_dir, "csv_row.csv"), mode='w') as f:
+                csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                csv_writer.writerow([args.dataset, args.model, git_commit, command_string,
+                                    str(args.test_year - 1), best_val['rmse'], best_val['r2'], best_val['corr'],
+                                    str(args.test_year), best_test['rmse'], best_test['r2'], best_test['corr'], best_model_path])       
 
         if epoch % 5 == 0 or epoch == args.max_epoch - 1:
             # Plot RMSE over time
@@ -518,6 +543,7 @@ def train(args):
             plots.append(test_r2_plot)
             plt.legend(handles=plots)
             plt.xlabel('Epoch #')
+            plt.ylim(0, 1)
             plt.ylabel('R^2')
             plt.savefig(os.path.join(results_dir, "metrics_r2.png"))
             plt.close()

@@ -207,7 +207,7 @@ class SingleYearRNN(nn.Module):
         # and pass through LSTM and fully-connected layers
         X_wm = X_wm.reshape(n_batch, self.num_weather_vars + self.num_management_vars_this_crop, self.time_intervals)
         X_wm = X_wm.permute((0, 2, 1))  # Permute dimensions to [batch_size, time_intervals, num_variables]
-        X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [128, z_dim]
+        X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [128, time_intervals, z_dim]
         X_wm = self.wm_fc(X_wm[:, -1, :])  # [128, 80]
 
         # Process soil data
@@ -225,7 +225,7 @@ class SAGE_RNN(nn.Module):
     def __init__(self, args, in_dim, out_dim):
         super(SAGE_RNN, self).__init__()
         if args.encoder_type == "cnn":
-            self.cnn = CNN(args)
+            self.encoder = CNN(args)
         elif args.encoder_type == "lstm" or args.encoder_type == "gru":
             self.encoder = SingleYearRNN(args)
         else:
@@ -240,7 +240,8 @@ class SAGE_RNN(nn.Module):
         self.layers.append(dglnn.SAGEConv(self.n_hidden, self.n_hidden, args.aggregator_type))
         self.dropout = nn.Dropout(args.dropout)
 
-        self.lstm = nn.LSTM(input_size=self.n_hidden, hidden_size=self.n_hidden, num_layers=1)  # TODO removed output_size from input_size
+        # self.lstm = nn.LSTM(input_size=self.n_hidden, hidden_size=self.n_hidden, num_layers=1)  # TODO removed output_size from input_size
+        self.lstm = nn.LSTM(input_size=self.n_hidden, hidden_size=self.n_hidden, num_layers=1, batch_first=True)
         self.regressor = nn.Sequential(
             nn.Linear(self.n_hidden, self.n_hidden//2),
             nn.ReLU(),
@@ -255,7 +256,7 @@ class SAGE_RNN(nn.Module):
         # print("y_pad:", y_pad.shape) # [675, 5, 1]
         hs = []
         for i in range(n_seq+1):
-            h = self.cnn(x[:, i, :]) # [675, 127]
+            h = self.encoder(x[:, i, :]) # [675, 127]
             for l, (layer, block) in enumerate(zip(self.layers, blocks)):
                 # We need to first copy the representation of nodes on the RHS from the
                 # appropriate nodes on the LHS.
@@ -281,6 +282,8 @@ class SAGE_RNN(nn.Module):
             print(y)
             exit(1)
 
+        hs = hs.permute((1, 0, 2))  # [n_batch, 5, n_hidden+out_dim]
+        # print("new hs dim", hs.shape)
         out, (last_h, last_c) = self.lstm(hs)
         if torch.isnan(hs).any():
             print("Some out states were nan")
@@ -292,8 +295,11 @@ class SAGE_RNN(nn.Module):
         # print(out.shape) # [5, 64, 64]
         # print(last_h.shape) # [1, 64, 64]
         # print(last_c.shape) # [1, 64, 64]
-        pred = self.regressor(out[-1]) # [64, 1]
+        # pred = self.regressor(out[-1]) # [64, 1]
 
+        # print("Out shape", out.shape)  # [n_batch, 5, 64]
+        pred = self.regressor(out)  # [n_batch, 5, out_dim]
+        # print("Pred shape", pred.shape)
         return pred
 
     def inference(self, g, x, batch_size, device):
