@@ -36,15 +36,20 @@ print(COLUMN_NAMES[0:10])
 num_counties_with_data = []
 
 # Loop through features
-for col_idx in range(2, data.shape[1]):
+all_states = set()
+all_counties = set()
+for col_idx in [2, 5, 7]:  # range(2, data.shape[1]):
     col_name = COLUMN_NAMES[col_idx]
     values_by_year = []
     years_with_data = []
     counties_with_col_data = [col_name]
+    print("Crop", col_name, "=================================")
+    all_year_states = set()
     for year in YEARS:
         rows_to_select = (year_column == year)
         values = data[rows_to_select, col_idx]  # Filter for rows within this year
         counties = data[rows_to_select, 0]
+
 
         # Plot map of variable data this year (we include the NaN entries so that
         # every county gets plotted
@@ -66,7 +71,20 @@ for col_idx in range(2, data.shape[1]):
         years_with_data.append(year)
         values_by_year.append(values)
 
+        states = set([int(county // 1000) for county in counties])
+        print("****************")
+        print("States in year", year, "-", states)
+        print("Num states:", len(states))
+        all_year_states = all_year_states.union(states)
+        all_counties = all_counties.union(counties)
 
+    print("Total number of states:", len(all_year_states))
+    print(all_year_states)
+
+    all_states = all_states.union(all_year_states)
+    print("CUMULATIVE states", len(all_states))
+    print(all_states)
+    print("CUMULATIVE counties", len(all_counties))
 
     # Append number of counties with data
     num_counties_with_data.append(counties_with_col_data)

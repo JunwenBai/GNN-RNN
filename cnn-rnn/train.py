@@ -341,9 +341,9 @@ def train(args):
 
 
     # Directories to store TensorBoard summary, model params, and results
-    summary_dir = 'summary/{}/{}'.format(args.dataset, param_setting)
-    model_dir = 'model/{}/{}'.format(args.dataset, param_setting)
-    results_dir = 'results/{}/{}'.format(args.dataset, param_setting)
+    summary_dir = 'summary/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
+    model_dir = 'model/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
+    results_dir = 'results/{}/{}/{}'.format(args.dataset, args.test_year, param_setting)
     build_path(summary_dir)
     build_path(model_dir)
     build_path(results_dir)
@@ -360,7 +360,7 @@ def train(args):
     print('building network...')
     if args.model == "cnn_rnn":
         model = CNN_RNN(args).to(device)
-    elif args.model == "rnn":
+    elif args.model == "lstm" or args.model == "gru":
         model = RNN(args).to(device)
     else:
         raise ValueError("model type not supported yet")

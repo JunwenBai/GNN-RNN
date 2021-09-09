@@ -58,7 +58,7 @@ parser.add_argument('-keep_prob', "--keep_prob", default=1.0, type=float, help='
 parser.add_argument('-c1', "--c1", default=0.0, type=float, help='c1')
 parser.add_argument('-c2', "--c2", default=1.0, type=float, help='c2')
 parser.add_argument('-mode', "--mode", type=str, help='training/test mode')
-parser.add_argument('-model', "--model", type=str, help='model type', choices=['cnn_rnn', 'rnn'])
+parser.add_argument('-model', "--model", type=str, help='model type', choices=['cnn_rnn', 'lstm', 'gru'])
 parser.add_argument('-sche', "--scheduler", default='cosine', choices=['cosine', 'step', 'plateau', 'exp'], help='lr scheduler')
 parser.add_argument('-exp_gamma', "--exp_gamma", default=0.98, type=float, help='exp lr decay gamma')
 
@@ -88,6 +88,10 @@ parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=i
 args = parser.parse_args()
 if args.no_management:
     assert(args.combine_weather_and_management)
+
+if args.crop_type not in args.dataset:
+    print("Alert! Did you forget to change the 'crop_type' param? You set 'crop_type' to", args.crop_type, "but 'dataset' to", args.dataset)
+    exit(1)
 
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
 args.output_idx = OUTPUT_INDICES[args.crop_type]

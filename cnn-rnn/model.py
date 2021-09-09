@@ -362,6 +362,7 @@ class RNN(nn.Module):
         self.n = self.n_w + self.n_s + self.num_management_vars_this_crop*args.time_intervals + self.n_extra
         self.z_dim = args.z_dim
         self.progress_indices = args.progress_indices
+        self.model = args.model
 
         # Pass flattened weather/soil/management data through MLP
         self.fc = nn.Sequential(
@@ -371,7 +372,12 @@ class RNN(nn.Module):
             nn.ReLU(),
         )
 
-        self.lstm = nn.LSTM(input_size=99, hidden_size=self.z_dim, num_layers=1, batch_first=True, dropout=1.-args.keep_prob)
+        if args.model == "lstm":
+            self.lstm = nn.LSTM(input_size=99, hidden_size=self.z_dim, num_layers=1, batch_first=True, dropout=1.-args.keep_prob)
+        elif args.model == "gru":
+            self.lstm = nn.GRU(input_size=99, hidden_size=self.z_dim, num_layers=1, batch_first=True, dropout=1.-args.keep_prob)
+        else:
+            raise ValueError("args.model must be `lstm` or `gru`")
         self.regressor = nn.Sequential(
             nn.Linear(self.z_dim, self.z_dim//2),
             nn.ReLU(),
@@ -403,7 +409,11 @@ class RNN(nn.Module):
         # print("After FC and reshape", X_all.shape)
 
         # Now pass the sequence of year features through the LSTM
-        out, (last_h, last_c) = self.lstm(X_all)
+        if self.model == "lstm":
+            out, (last_h, last_c) = self.lstm(X_all)  # [128, z_dim]
+        elif self.model == "gru":
+            out, h_n = self.lstm(X_all)
+
         # print("out:", out.shape) # [64, 5, 64]
         # print("last_h:", last_h.shape) # [1, 64, 64]
         # print("last_c:", last_c.shape) # [1, 64, 64]

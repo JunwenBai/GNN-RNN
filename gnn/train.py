@@ -277,10 +277,16 @@ def val_epoch(args, model, device, nodeloader, year_XY, county_avg, epoch, mode=
     return metrics_all, results
 
 def train(args):
-    print('reading npy...')
+    torch.set_num_threads(12)
+    random.seed(args.seed)
     np.random.seed(args.seed) # set the random seed of numpy
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+    dgl.seed(args.seed)
+    # dgl.random.seed(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     raw_data = np.load(args.data_dir) #load data from the data_dir
     data = raw_data['data']
     
@@ -454,6 +460,7 @@ def train(args):
 
         print("BEST Val | rmse: {}, r2: {}, corr: {}".format(best_val['rmse'], best_val['r2'], best_val['corr']))
         print("BEST Test | rmse: {}, r2: {}, corr: {}".format(best_test['rmse'], best_test['r2'], best_test['corr']))
+        print("Model path:", best_model_path)
         if scheduler is not None:
             scheduler.step()
 

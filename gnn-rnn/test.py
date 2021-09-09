@@ -1,3 +1,4 @@
+import csv
 import math
 import pandas as pd
 from time import time
@@ -198,7 +199,7 @@ def test(args):
     # Compute results directory
     normalized_checkpoint_path = os.path.normpath(args.checkpoint_path)
     normalized_checkpoint_path = normalized_checkpoint_path.split(os.sep)
-    results_dir = os.path.join("results", normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
+    results_dir = os.path.join("results", normalized_checkpoint_path[-4], normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
     print("RESULTS DIR", results_dir)
 
     # Load data from data_dir
@@ -264,3 +265,16 @@ def test(args):
         f.write("Checkpoint: " + args.checkpoint_path + "\n")
         f.write("Test (" + time_str + ") | rmse: {}, r2: {}, corr: {}\n".format(test_metrics['rmse'], test_metrics['r2'], test_metrics['corr']))
  
+    # Summary csv file of all TEST results. Create this if it doesn't exist
+    results_summary_file = 'results/{}/{}/results_summary_TEST.csv'.format(args.dataset, args.test_year)
+    if not os.path.isfile(results_summary_file):
+        with open(results_summary_file, mode='w') as f:
+            csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            csv_writer.writerow(['dataset', 'model', 'git_commit', 'command', 'test_week', 'mask_value', 'mask_prob', 'test_year', 'test_rmse', 'test_r2', 'test_corr', 'checkpoint'])
+    git_commit = get_git_revision_hash()
+    command_string = " ".join(sys.argv)
+    with open(results_summary_file, mode='a+') as f:
+        csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        csv_writer.writerow([args.dataset, args.model, git_commit, command_string,
+                             args.validation_week, args.mask_value, args.mask_prob,
+                             str(args.test_year), test_metrics['rmse'], test_metrics['r2'], test_metrics['corr'], args.checkpoint_path])

@@ -1,5 +1,6 @@
 import argparse
 from single_year_train import train
+from single_year_test import test
 
 # Index of the yield variable for each variable
 OUTPUT_INDICES = {'corn': 2,
@@ -65,11 +66,17 @@ parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='
 parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
 parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive), and mask out data starting from the random week. Set to args.time_intervals for no masking.")
 parser.add_argument('-validation_week', "--validation_week", default=52, type=int, help="Mask out data starting from this week during validation. Set to args.time_intervals for no masking.")
+parser.add_argument('-mask_prob', "--mask_prob", default=1, type=float, help="Probability of masking. 0 means don't mask any data.")
+parser.add_argument('-mask_value', "--mask_value", choices=['zero', 'county_avg'], default='zero')
 
 # ONLY used for test_predictions_over_time, if we're plotting predictions over time for a specific county and the test year.
 parser.add_argument('-county_to_plot', "--county_to_plot", default=17083, type=int, help='County FIPS to plot (ONLY used for the "test_predictions_over_time" mode).')
 
 args = parser.parse_args()
+
+if args.crop_type not in args.dataset:
+    print("Alert! Did you forget to change the 'crop_type' param? You set 'crop_type' to ", args.crop_type, "but 'dataset' to", args.dataset)
+    exit(1)
 
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
 args.output_idx = OUTPUT_INDICES[args.crop_type]
@@ -88,8 +95,8 @@ print("Time intervals", args.time_intervals)
 if __name__ == "__main__":
     if args.mode == 'train':
         train(args)
-    # elif args.mode == 'test':
-    #     test(args)
+    elif args.mode == 'test':
+        test(args)
     # elif args.mode == 'test_predictions_over_time':
     #     test_predictions_over_time(args)
     else:

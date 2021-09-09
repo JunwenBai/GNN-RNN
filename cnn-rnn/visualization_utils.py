@@ -82,11 +82,12 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
 
         # Customize colorbar
         divider = make_axes_locatable(axeslist[0])
-        cax = divider.append_axes("right", size="3%", pad=0)
-        cax.tick_params(labelsize=24)  # Modify colorbar font size
+        cax = divider.append_axes("right", size="2%", pad=0)
+        cax.tick_params(labelsize=30)  # Modify colorbar font size
+        cax.set_ylabel("Yield (bushels/acre)")
 
         # Plot predicted yields
-        county_map.plot(column="predicted_" + crop_type, ax=axeslist[0], legend=True, cmap='RdYlGn',
+        county_map.plot(column="predicted_" + crop_type, ax=axeslist[0], legend=True, cmap='viridis',
                         vmin=min_yield, vmax=max_yield, edgecolor="black", cax=cax,
                         missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                             "color": "lightgrey",
@@ -97,9 +98,10 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
 
         # True yields
         divider = make_axes_locatable(axeslist[1])
-        cax = divider.append_axes("right", size="3%", pad=0)
-        cax.tick_params(labelsize=24)
-        county_map.plot(column="true_" + crop_type, ax=axeslist[1], legend=True, cmap='RdYlGn',
+        cax = divider.append_axes("right", size="2%", pad=0)
+        cax.tick_params(labelsize=30)
+        cax.set_ylabel("Yield (bushels/acre)")
+        county_map.plot(column="true_" + crop_type, ax=axeslist[1], legend=True, cmap='viridis',
                         vmin=min_yield, vmax=max_yield, edgecolor="black", cax=cax,
                         missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                             "color": "lightgrey",
@@ -110,9 +112,11 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
 
         # Difference (Predicted - True)
         divider = make_axes_locatable(axeslist[2])
-        cax = divider.append_axes("right", size="3%", pad=0)
-        cax.tick_params(labelsize=24)
-        county_map.plot(column="difference_" + crop_type, ax=axeslist[2], legend=True, cmap='RdYlGn',
+        cax = divider.append_axes("right", size="2%", pad=0)
+        cax.tick_params(labelsize=30)
+        cax.set_ylabel("Yield (bushels/acre)")
+
+        county_map.plot(column="difference_" + crop_type, ax=axeslist[2], legend=True, cmap='RdYlBu',
                         vmin=-max_absolute_difference, vmax=max_absolute_difference, edgecolor="black", cax=cax,
                         missing_kwds={  # Red hatch for missing values. See https://geopandas.org/docs/user_guide/mapping.html#choropleth-maps
                             "color": "lightgrey",
@@ -121,12 +125,15 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
                             "label": "Missing values",
                         })        
 
-        axeslist[0].set_title("Predicted " + crop_type + " yield: " + description, fontsize=36)
-        axeslist[0].tick_params(labelsize=24)
-        axeslist[1].set_title("True " + crop_type + " yield: " + description, fontsize=36)
-        axeslist[1].tick_params(labelsize=24)
+        axeslist[0].set_title("Predicted " + crop_type + " yield (bushels/acre): " + description, fontsize=36)
+        axeslist[0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+        # axeslist[0].tick_params(labelsize=36)
+        axeslist[1].set_title("True " + crop_type + " yield (bushels/acre): " + description, fontsize=36)
+        axeslist[1].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+        # axeslist[1].tick_params(labelsize=24)
         axeslist[2].set_title("Difference (Predicted - True)", fontsize=36)
-        axeslist[2].tick_params(labelsize=24)
+        axeslist[2].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+        # axeslist[2].tick_params(labelsize=24)
         plt.savefig(os.path.join(output_dir, "true_vs_predicted_map_" + crop_type + "_" + description + ".png"))
         plt.close()
     
@@ -134,9 +141,10 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
     rows = math.ceil(len(crop_types) / 2)
     cols = min(len(crop_types), 2)
     fig, axeslist = plt.subplots(rows, cols, figsize=(6*cols, 6*rows), squeeze=False)  # squeeze=False means that even if we only have one plot, axeslist will still be a 2D array
-    fig.suptitle('True vs predicted yield: ' + description)
+    fig.suptitle('True vs predicted yield: ' + description, fontsize=14)
     for idx, crop_type in enumerate(crop_types):
         ax = axeslist.ravel()[idx]
+
         predicted = results_df["predicted_" + crop_type].to_numpy()
         true = results_df["true_" + crop_type].to_numpy()
 
@@ -162,13 +170,19 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
 
         # Plot
         ax.scatter(true, predicted, color="k", s=5)
-        ax.plot(true, regression_line, 'r', label=regression_equation + ' (R^2={:.2f}, Corr={:.2f}, RMSE={:.2f})'.format(r2, corr, rmse))
+        ax.plot(true, regression_line, 'r', label=regression_equation + ' (R^2={:.2f}, Corr={:.2f})'.format(r2, corr))
         ax.plot(true, identity_line, 'g--', label='Identity function')
-        ax.set(xlabel='True yield', ylabel='Predicted yield', title=crop_type)
-        ax.legend(fontsize=10)
+        ax.tick_params(labelsize=14)
+        ax.set_xlabel("True yield (bushels/acre)", fontsize=14)
+        ax.set_ylabel("Predicted yield (bushels/acre)", fontsize=14)
+        ax.set_title(crop_type, fontsize=14)
+        # ax.set(xlabel='True yield (bushels/acre)', ylabel='Predicted yield (bushels/acre)', title=crop_type)
+        ax.legend(fontsize=14)
         # ax.set_title(crop_type)
     plt.tight_layout()
     fig.subplots_adjust(top=0.90)
+    if len(crop_types) == 1:
+        description = crop_types[0] + "_" + description
     plt.savefig(os.path.join(output_dir, "true_vs_predicted_scatter_" + description + ".png"))
     plt.close()
 

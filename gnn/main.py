@@ -88,6 +88,10 @@ parser.add_argument('-mask_value', "--mask_value", choices=['zero', 'county_avg'
 args = parser.parse_args()
 args.model = "gnn"
 
+if args.crop_type not in args.dataset:
+    print("Alert! Did you forget to change the 'crop_type' param? You set 'crop_type' to", args.crop_type, "but 'dataset' to", args.dataset)
+    exit(1)
+
 # Set number of time intervals per year (365 for daily dataset, 52 for weekly dataset)
 args.output_idx = OUTPUT_INDICES[args.crop_type]
 args.output_names = [args.crop_type]

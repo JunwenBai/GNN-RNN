@@ -38,7 +38,6 @@ def eval(pred, Y, args):
     Y = (Y - args.means) / args.stds
     pred = (pred - args.means) / args.stds
     pred, Y = pred.detach().cpu().numpy(), Y.detach().cpu().numpy()
-
     metric_names = ['rmse', 'r2', 'corr', 'mae', 'mse', 'mape']
     metrics = {metric_name : {} for metric_name in metric_names}
 

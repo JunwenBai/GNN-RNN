@@ -12,9 +12,9 @@ import sys
 import os
 import datetime
 from copy import copy, deepcopy
-from model import CNN_RNN, RNN
+from single_year_models import SingleYearCNN, SingleYearRNN
 import random
-from utils import get_X_Y, build_path, mask_end, get_git_revision_hash
+from baseline_utils import get_X_Y, build_path, mask_end, get_git_revision_hash
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_absolute_error as MAE
 import visualization_utils
@@ -72,8 +72,8 @@ def eval(pred, Y, args):
 def loss_fn(pred, Y, args, mode="logcosh"):
     loss = 0
 
-    Y = torch.reshape(Y, (-1, Y.shape[-1]))
-    pred = torch.reshape(pred, (-1, pred.shape[-1]))
+    # Y = torch.reshape(Y, (-1, Y.shape[-1]))
+    # pred = torch.reshape(pred, (-1, pred.shape[-1]))
 
     # Standardize based on mean/std of each output (crop type)
     Y = (Y - args.means) / args.stds
@@ -121,7 +121,7 @@ def update_metrics(rmse, r2, corr, mode):
 
 def test_epoch(args, model, device, test_loader, county_avg, mode="Val"):
     print("********************")
-    print("Test CNN-RNN")
+    print("Test single-year model")
     print("********************")
     model.eval()
     tot_loss = 0.
@@ -132,25 +132,23 @@ def test_epoch(args, model, device, test_loader, county_avg, mode="Val"):
         X, Y, counties, years = X.to(device), Y.to(device), counties.to(device), years.to(device)
 
         # To simulate early prediction, mask out data starting from the specified "validation_week"
-        X[:, -1, :] = mask_end(X[:, -1, :], counties, county_avg, args, args.validation_week, args.validation_week, device)
+        X = mask_end(X, counties, county_avg, args, args.validation_week, args.validation_week, device)
 
         predictions_std = model(X)
         pred = predictions_std * args.stds + args.means
-
-        loss = loss_fn(pred[:, :args.length-1, :], Y[:, :args.length-1, :], args) * args.c1 + \
-               loss_fn(pred[:, -1, :], Y[:, -1, :], args) * args.c2
+        loss = loss_fn(pred, Y, args)
         tot_loss += loss.item()
-        all_pred.append(pred[:, -1, :])
-        all_Y.append(Y[:, -1, :])
+        all_pred.append(pred)
+        all_Y.append(Y)
 
         # Create a dataframe with true vs. predicted yield for each county in the validation
         # year (so that we can produce maps later)
         result_df_dict = {"fips": counties.detach().cpu().numpy().astype(int).tolist(),
                           "year": years.detach().cpu().numpy().astype(int).tolist()}
-        for i in range(Y.shape[2]):
+        for i in range(Y.shape[1]):
             output_name = args.output_names[i]
-            result_df_dict["predicted_" + output_name] = pred[:, -1, i].detach().cpu().numpy().tolist()
-            result_df_dict["true_" + output_name] = Y[:, -1, i].detach().cpu().numpy().tolist()
+            result_df_dict["predicted_" + output_name] = pred[:, i].detach().cpu().numpy().tolist()
+            result_df_dict["true_" + output_name] = Y[:, i].detach().cpu().numpy().tolist()
         result_dfs.append(pd.DataFrame(result_df_dict))
 
     results = pd.concat(result_dfs)
@@ -178,7 +176,7 @@ def test(args):
     # Compute results directory
     normalized_checkpoint_path = os.path.normpath(args.checkpoint_path)
     normalized_checkpoint_path = normalized_checkpoint_path.split(os.sep)
-    results_dir = os.path.join("results", normalized_checkpoint_path[-4], normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
+    results_dir = os.path.join("results", normalized_checkpoint_path[-3], normalized_checkpoint_path[-2])
     print("RESULTS DIR", results_dir)
 
     # Load data from the data_dir
@@ -208,10 +206,11 @@ def test(args):
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=1)
     
     #building the model 
-    if args.model == "cnn_rnn":
-        model = CNN_RNN(args).to(device)
+    print('building network...')
+    if args.model == "cnn":
+        model = SingleYearCNN(args).to(device)
     elif args.model == "lstm" or args.model == "gru":
-        model = RNN(args).to(device)
+        model = SingleYearRNN(args).to(device)
     else:
         raise ValueError("model type not supported yet")
     model.load_state_dict(torch.load(args.checkpoint_path, map_location=device))
@@ -235,7 +234,7 @@ def test(args):
         f.write("Test (" + time_str + ") | rmse: {}, r2: {}, corr: {}\n".format(test_metrics['rmse'], test_metrics['r2'], test_metrics['corr']))
  
     # Summary csv file of all TEST results. Create this if it doesn't exist
-    results_summary_file = 'results/{}/{}/results_summary_TEST.csv'.format(args.dataset, args.test_year)
+    results_summary_file = 'results/{}/results_summary_TEST.csv'.format(args.dataset)  #, args.test_year)
     if not os.path.isfile(results_summary_file):
         with open(results_summary_file, mode='w') as f:
             csv_writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
