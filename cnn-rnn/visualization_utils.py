@@ -141,7 +141,7 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
     rows = math.ceil(len(crop_types) / 2)
     cols = min(len(crop_types), 2)
     fig, axeslist = plt.subplots(rows, cols, figsize=(6*cols, 6*rows), squeeze=False)  # squeeze=False means that even if we only have one plot, axeslist will still be a 2D array
-    fig.suptitle('True vs predicted yield: ' + description, fontsize=14)
+    fig.suptitle('True vs predicted yield: ' + description, fontsize=13)
     for idx, crop_type in enumerate(crop_types):
         ax = axeslist.ravel()[idx]
 
@@ -172,12 +172,12 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
         ax.scatter(true, predicted, color="k", s=5)
         ax.plot(true, regression_line, 'r', label=regression_equation + ' (R^2={:.2f}, Corr={:.2f})'.format(r2, corr))
         ax.plot(true, identity_line, 'g--', label='Identity function')
-        ax.tick_params(labelsize=14)
-        ax.set_xlabel("True yield (bushels/acre)", fontsize=14)
-        ax.set_ylabel("Predicted yield (bushels/acre)", fontsize=14)
-        ax.set_title(crop_type, fontsize=14)
+        ax.tick_params(labelsize=13)
+        ax.set_xlabel("True yield (bushels/acre)", fontsize=13)
+        ax.set_ylabel("Predicted yield (bushels/acre)", fontsize=13)
+        ax.set_title(crop_type, fontsize=13)
         # ax.set(xlabel='True yield (bushels/acre)', ylabel='Predicted yield (bushels/acre)', title=crop_type)
-        ax.legend(fontsize=14)
+        ax.legend(fontsize=13)
         # ax.set_title(crop_type)
     plt.tight_layout()
     fig.subplots_adjust(top=0.90)
