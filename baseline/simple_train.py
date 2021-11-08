@@ -1,3 +1,10 @@
+"""
+Trains a simple feature-based (scikit-learn) model to predict crop yield.
+Does a grid search over hyperparameters (running each configuration 3 times),
+selects the configuration that performs best on the validation set, and reports
+results for the 3 runs.
+"""
+
 import csv
 import math
 import numpy as np

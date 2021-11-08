@@ -6,7 +6,6 @@ import torch.optim as optim
 class SingleYearCNN(nn.Module):
     def __init__(self, args):
         super(SingleYearCNN, self).__init__()
-        print("The Single Year CNN is being used!")
         self.z_dim = args.z_dim
         self.output_dim = len(args.output_names)
 
@@ -128,7 +127,6 @@ class SingleYearRNN(nn.Module):
 
     def __init__(self, args):
         super(SingleYearRNN, self).__init__()
-        print("The Single Year RNN is being used!")
         # Store dataset dimensions
         self.no_management = args.no_management
         if args.no_management:
