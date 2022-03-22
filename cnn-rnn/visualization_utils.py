@@ -73,7 +73,7 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
         county_map["difference_" + crop_type] = county_map["predicted_" + crop_type] - county_map["true_" + crop_type]
 
         # Set up subplots
-        fig, axeslist = plt.subplots(3, 1, figsize=(30, 45))
+        fig, axeslist = plt.subplots(3, 1, figsize=(30, 38))
 
         # Compute range of colorbars (by taking the min across both true and predicted)
         min_yield = min(county_map["predicted_" + crop_type].min(), county_map["true_" + crop_type].min())
@@ -83,7 +83,7 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
         # Customize colorbar
         divider = make_axes_locatable(axeslist[0])
         cax = divider.append_axes("right", size="2%", pad=0)
-        cax.tick_params(labelsize=30)  # Modify colorbar font size
+        cax.tick_params(labelsize=60)  # Modify colorbar font size
         cax.set_ylabel("Yield (bushels/acre)")
 
         # Plot predicted yields
@@ -99,7 +99,7 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
         # True yields
         divider = make_axes_locatable(axeslist[1])
         cax = divider.append_axes("right", size="2%", pad=0)
-        cax.tick_params(labelsize=30)
+        cax.tick_params(labelsize=60)
         cax.set_ylabel("Yield (bushels/acre)")
         county_map.plot(column="true_" + crop_type, ax=axeslist[1], legend=True, cmap='viridis',
                         vmin=min_yield, vmax=max_yield, edgecolor="black", cax=cax,
@@ -113,7 +113,7 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
         # Difference (Predicted - True)
         divider = make_axes_locatable(axeslist[2])
         cax = divider.append_axes("right", size="2%", pad=0)
-        cax.tick_params(labelsize=30)
+        cax.tick_params(labelsize=60)
         cax.set_ylabel("Yield (bushels/acre)")
 
         county_map.plot(column="difference_" + crop_type, ax=axeslist[2], legend=True, cmap='RdYlBu',
@@ -125,23 +125,25 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
                             "label": "Missing values",
                         })        
 
-        axeslist[0].set_title("Predicted " + crop_type + " yield (bushels/acre): " + description, fontsize=36)
+        axeslist[0].set_title("Predicted yield (bu/ac): " + description + ", " + crop_type, fontsize=60)
         axeslist[0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
         # axeslist[0].tick_params(labelsize=36)
-        axeslist[1].set_title("True " + crop_type + " yield (bushels/acre): " + description, fontsize=36)
+        axeslist[1].set_title("True yield (bu/ac): " + description + ", " + crop_type, fontsize=60)
         axeslist[1].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
         # axeslist[1].tick_params(labelsize=24)
-        axeslist[2].set_title("Difference (Predicted - True)", fontsize=36)
+        axeslist[2].set_title("Difference (Predicted - True)", fontsize=60)
         axeslist[2].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
         # axeslist[2].tick_params(labelsize=24)
-        plt.savefig(os.path.join(output_dir, "true_vs_predicted_map_" + crop_type + "_" + description + ".png"))
+        plt.savefig(os.path.join(output_dir, "true_vs_predicted_map_" + crop_type + "_" + description + ".png"), bbox_inches='tight')
         plt.close()
     
     # Create scatter plots: true on x-axis, predicted on y-axis
     rows = math.ceil(len(crop_types) / 2)
     cols = min(len(crop_types), 2)
-    fig, axeslist = plt.subplots(rows, cols, figsize=(6*cols, 6*rows), squeeze=False)  # squeeze=False means that even if we only have one plot, axeslist will still be a 2D array
-    fig.suptitle('True vs predicted yield: ' + description, fontsize=13)
+    fig, axeslist = plt.subplots(rows, cols, figsize=(7*cols, 7*rows), squeeze=False)  # squeeze=False means that even if we only have one plot, axeslist will still be a 2D array
+    if len(crop_types) != 1:
+        fig.suptitle('Predicted vs true yield: ' + description, fontsize=22)
+
     for idx, crop_type in enumerate(crop_types):
         ax = axeslist.ravel()[idx]
 
@@ -170,20 +172,23 @@ def plot_true_vs_predicted(results_df, crop_types, description, output_dir):
 
         # Plot
         ax.scatter(true, predicted, color="k", s=5)
-        ax.plot(true, regression_line, 'r', label=regression_equation + ' (R^2={:.2f}, Corr={:.2f})'.format(r2, corr))
+        ax.plot(true, regression_line, 'r', label=regression_equation + ' (R^2={:.2f})'.format(r2))
         ax.plot(true, identity_line, 'g--', label='Identity function')
-        ax.tick_params(labelsize=13)
-        ax.set_xlabel("True yield (bushels/acre)", fontsize=13)
-        ax.set_ylabel("Predicted yield (bushels/acre)", fontsize=13)
-        ax.set_title(crop_type, fontsize=13)
+        ax.tick_params(labelsize=22)
+        ax.set_xlabel("True yield (bu/ac)", fontsize=22)
+        ax.set_ylabel("Predicted yield (bu/ac)", fontsize=22)
+        if len(crop_types) != 1:
+            ax.set_title(crop_type, fontsize=22)
+        else:
+            ax.set_title('Predicted vs true yield: ' + description + ", " + crop_type, fontsize=22)
         # ax.set(xlabel='True yield (bushels/acre)', ylabel='Predicted yield (bushels/acre)', title=crop_type)
-        ax.legend(fontsize=13)
+        ax.legend(fontsize=22)
         # ax.set_title(crop_type)
     plt.tight_layout()
-    fig.subplots_adjust(top=0.90)
+    # fig.subplots_adjust(top=0.93)
     if len(crop_types) == 1:
         description = crop_types[0] + "_" + description
-    plt.savefig(os.path.join(output_dir, "true_vs_predicted_scatter_" + description + ".png"))
+    plt.savefig(os.path.join(output_dir, "true_vs_predicted_scatter_" + description + ".png"), bbox_inches='tight')
     plt.close()
 
 
