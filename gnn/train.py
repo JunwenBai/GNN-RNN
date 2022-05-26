@@ -302,8 +302,8 @@ def train(args):
     sampler = dgl.dataloading.MultiLayerNeighborSampler([10, 10])
     nodeloader = dgl.dataloading.NodeDataLoader(
         g,
-        range(N),
-        # torch.tensor(list(range(N)), device=device),  #.to(device),
+        # range(N),
+        torch.tensor(list(range(N)), device=device),  #.to(device),
         sampler,
         batch_size=args.batch_size,
         shuffle=True,

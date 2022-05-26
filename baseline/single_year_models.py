@@ -112,11 +112,11 @@ class SingleYearCNN(nn.Module):
         X_wm = self.wm_conv(X_wm).squeeze(-1) # [128, 512]
         X_wm = self.wm_fc(X_wm) # [128, 80]
 
-        X_soil = X[:, self.n_w:self.n_w+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths)  # [128, num_soil_vars, soil_depths]
+        X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths)  # [128, num_soil_vars, soil_depths]
         X_s = self.s_conv(X_soil).squeeze(-1) # [128, 64]
         X_s = self.s_fc(X_s) # [128, 40]
 
-        X_extra = X[:, self.n_w+self.n_s+self.n_m:] # [128, n_extra]
+        X_extra = X[:, self.n_w+self.n_m+self.n_s:] # [128, n_extra]
 
         X_all = torch.cat((X_wm, X_s, X_extra), dim=1) # [128, 80+40+n_extra]
         pred = self.regressor(X_all)  # [128, output_dim]

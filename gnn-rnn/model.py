@@ -107,11 +107,11 @@ class CNN(nn.Module):
         X_wm = self.wm_conv(X_wm).squeeze(-1) # [675, 512]
         X_wm = self.wm_fc(X_wm) # [675, 80]
 
-        X_soil = X[:, self.n_w:self.n_w+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths)  # [675*10, num_soil_vars, soil_depths]
+        X_soil = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(-1, self.num_soil_vars, self.soil_depths)  # [675, num_soil_vars, soil_depths]
         X_s = self.s_conv(X_soil).squeeze(-1) # [675, 64]
         X_s = self.s_fc(X_s) # [675, 40]
 
-        X_extra = X[:, self.n_w+self.n_s+self.n_m:] # [675, n_extra]
+        X_extra = X[:, self.n_w+self.n_m+ self.n_s:] # [675, n_extra]
 
         X_all = torch.cat((X_wm, X_s, X_extra), dim=1) # [675, 80+40+n_extra]
         
@@ -207,13 +207,13 @@ class SingleYearRNN(nn.Module):
         # and pass through LSTM and fully-connected layers
         X_wm = X_wm.reshape(n_batch, self.num_weather_vars + self.num_management_vars_this_crop, self.time_intervals)
         X_wm = X_wm.permute((0, 2, 1))  # Permute dimensions to [batch_size, time_intervals, num_variables]
-        X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [128, time_intervals, z_dim]
-        X_wm = self.wm_fc(X_wm[:, -1, :])  # [128, 80]
+        X_wm, (last_h, last_c) = self.within_year_rnn(X_wm)  # [batch, time_intervals, z_dim]
+        X_wm = self.wm_fc(X_wm[:, -1, :])  # [batch, 80]
 
         # Process soil data
         X_s = X[:, self.n_w+self.n_m:self.n_w+self.n_m+self.n_s].reshape(n_batch, self.num_soil_vars, self.soil_depths)
-        X_s = self.s_conv(X_s).squeeze(-1) # [64*5, 64]
-        X_s = self.s_fc(X_s) # [64*5, 40]
+        X_s = self.s_conv(X_s).squeeze(-1) # [batch, 64]
+        X_s = self.s_fc(X_s) # [batch, 40]
 
         # Combine weather/management and soil representations, and extra variables. Pass them all through final regressor
         X_extra = X[:, self.n_w+self.n_m+self.n_s:]
