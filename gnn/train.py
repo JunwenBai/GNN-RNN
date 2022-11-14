@@ -321,7 +321,7 @@ def train(args):
             X.append(X_dict[county][year])
             Y.append(Y_dict[county][year])
             counties.append(county)
-        X, Y, counties = torch.tensor(X), torch.tensor(Y), torch.tensor(counties)
+        X, Y, counties = torch.tensor(np.array(X), device=device), torch.tensor(np.array(Y), device=device), torch.tensor(np.array(counties), device=device)
         year_XY[year] = (X, Y, counties)
 
     param_setting = "gnn_bs-{}_lr-{}_maxepoch-{}_sche-{}_T0-{}_step-{}_gamma-{}_dropout-{}_testyear-{}_aggregator-{}_encoder-{}_trainweekstart-{}_len-{}_seed-{}".format(
