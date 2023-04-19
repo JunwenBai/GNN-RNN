@@ -58,3 +58,9 @@ If you find our work inspiring, please consider citing the following paper:
   year={2022}
 }
 ```
+
+## References
+
+[CNN-RNN](https://github.com/saeedkhaki92/CNN-RNN-Yield-Prediction)
+
+[DNN](https://github.com/saeedkhaki92/Yield-Prediction-DNN)
