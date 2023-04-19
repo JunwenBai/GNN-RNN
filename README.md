@@ -4,6 +4,8 @@
 
 This codebase is the implementation of the [GNN-RNN](https://arxiv.org/pdf/2111.08900.pdf) model for crop yield prediction in the US (AAAI 2022). GNN-RNN is the first machine learning method that embeds geographical knowledge in crop yield prediction and predicts crop yields at the county level nationwide.
 
+A workshop version of this work won [Best ML Innovation Paper](https://www.climatechange.ai/events/neurips2021#accepted-works) award at NeurIPS workshop on Tackling Climate Change with Machine Learning, 2021.
+
 ## Requirements
 - Python 3
 - PyTorch 1.0+
