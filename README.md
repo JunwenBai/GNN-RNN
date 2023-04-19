@@ -62,5 +62,4 @@ If you find our work inspiring, please consider citing the following paper:
 ## References
 
 [CNN-RNN](https://github.com/saeedkhaki92/CNN-RNN-Yield-Prediction)
-
 [DNN](https://github.com/saeedkhaki92/Yield-Prediction-DNN)
