@@ -39,3 +39,20 @@ From the "cnn-rnn" directory, run
 `./run_train.sh cnn_rnn`
 
 `./run_train.sh rnn`
+
+
+## Paper
+
+If you find our work inspiring, please consider citing the following paper:
+
+```bibtex
+@inproceedings{fan2022gnn,
+  title={A GNN-RNN approach for harnessing geospatial and temporal information: application to crop yield prediction},
+  author={Fan, Joshua and Bai, Junwen and Li, Zhiyun and Ortiz-Bobea, Ariel and Gomes, Carla P},
+  booktitle={Proceedings of the AAAI conference on artificial intelligence},
+  volume={36},
+  number={11},
+  pages={11873--11881},
+  year={2022}
+}
+```
