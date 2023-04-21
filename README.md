@@ -11,18 +11,25 @@ A workshop version of this work won the [Best ML Innovation Paper](https://www.c
 - PyTorch 1.0+
 - Other packages: dgl, geopandas, numpy, scikit-learn, pandas, matplotlib, tensorboard
 
-Older versions might work as well. As of 2023-04-19, the following commands can be used to download the necessary packages using conda. Geopandas is sometimes tricky to install; you may need to switch Python versions, download from the conda-forge channel, or use pip to install (after using conda to install its dependencies -- see its documentation).
+Older versions might work as well. As of 2023-04-19, the following commands can be used to download the necessary packages using conda. Geopandas is sometimes tricky to install; see its documentation for more options in case it doesn't work.
 
 `conda create -n gnnrnn`
+
 `conda activate gnnrnn`
+
 `conda install geopandas`
+
 `conda install numpy scipy scikit-learn pandas matplotlib tensorboard`
+
 `conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia`
+
 `conda install -c dglteam/label/cu117 dgl`
 
 ## Data
 
-Sample crop yield dataset is stored in `data/data_weekly_subset.npz` and the nation-wise adjacency map is stored in `map/`. Unfortunately, since we are preparing a journal publication, we currently are only able to release a subset of the dataset (Illinois and Iowa), but it should give an idea of the data format.
+Sample crop yield dataset is stored in `data/data_weekly_subset.npz` and the nation-wise adjacency map is stored in `map/`.
+
+Unfortunately, since we are preparing a journal publication, we currently are only able to release a subset of the dataset (Illinois and Iowa), but it should give an idea of the data format.
 
 [This sheet](https://docs.google.com/spreadsheets/d/1hhQ8lGzfgLLyl-gKX13NNboJFywIsJoJOKdttx9hKxE/edit?usp=sharing) contains descriptions of the columns in the dataset. Each row coresponds to one county/year pair.
 
