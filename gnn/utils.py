@@ -193,7 +193,7 @@ def get_X_Y(data, args, device):
     X = (X - X_mean) / (X_std + 1e-10)
 
     # Check for extreme values in X (after standardization)
-    print('============================== :):):):) #2')
+    print('==============================')
     indices = np.argwhere((X > 100) | (X < -100))
     for i in range(indices.shape[0]):
         row, col = indices[i, 0], indices[i, 1]

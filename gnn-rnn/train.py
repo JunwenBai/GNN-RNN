@@ -361,7 +361,7 @@ def train(args):
 
     N = len(adj)
     sampler = dgl.dataloading.MultiLayerNeighborSampler([10, 10])
-    nodeloader = dgl.dataloading.NodeDataLoader(
+    nodeloader = dgl.dataloading.DataLoader(
         g,
         torch.arange(N).to(device),
         sampler,

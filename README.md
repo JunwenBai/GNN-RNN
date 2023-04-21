@@ -6,25 +6,42 @@ This codebase is the implementation of the [GNN-RNN](https://arxiv.org/pdf/2111.
 
 A workshop version of this work won the [Best ML Innovation Paper](https://www.climatechange.ai/events/neurips2021#accepted-works) award at NeurIPS workshop on Tackling Climate Change with Machine Learning, 2021.
 
-## Requirements
+## Requirements and installation
 - Python 3
 - PyTorch 1.0+
+- Other packages: dgl, geopandas, numpy, scikit-learn, pandas, matplotlib, tensorboard
 
-Older versions might work as well.
+Older versions might work as well. As of 2023-04-19, the following commands can be used to download the necessary packages using conda. Geopandas is sometimes tricky to install; you may need to switch Python versions, download from the conda-forge channel, or use pip to install (after using conda to install its dependencies -- see its documentation).
+
+`conda create -n gnnrnn`
+`conda activate gnnrnn`
+`conda install geopandas`
+`conda install numpy scipy scikit-learn pandas matplotlib tensorboard`
+`conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia`
+`conda install -c dglteam/label/cu117 dgl`
 
 ## Data
 
-Sample crop yield dataset is stored in `data/` and the nation-wise adjacency map is stored in `map/`.
+Sample crop yield dataset is stored in `data/data_weekly_subset.npz` and the nation-wise adjacency map is stored in `map/`. Unfortunately, since we are preparing a journal publication, we currently are only able to release a subset of the dataset (Illinois and Iowa), but it should give an idea of the data format.
+
+[This sheet](https://docs.google.com/spreadsheets/d/1hhQ8lGzfgLLyl-gKX13NNboJFywIsJoJOKdttx9hKxE/edit?usp=sharing) contains descriptions of the columns in the dataset. Each row coresponds to one county/year pair.
 
 ## Experiment scripts
 
 For all methods, make sure to check the `test_year`, `model`, and `crop_type` parameters. If `train_week` and `validation_week` are set to 52, no masking is performed.
 
-**Basic regression:**
+**GNN and GNN-RNN**
+
+From the "gnn" or "gnn-rnn" directory, run `./run_train.sh` to train the respective methods.
+
+To test the model, please update the checkpoint `-cp` in `run_test.sh`, and:
+```./run_test.sh```
+`--validation_week` determines which week to start masking data from (e.g. if it's 26, all features starting from week 26 is replaced with the historical averages, simulating predicting in the middle of the year)
+**Basic regression baselines**
 
 `baseline/simple_run_train.sh` contains basic methods (linear regression, gradient boosting regressor, MLP). It's slow though.
 
-**Single-year models:**
+**Single-year baselines**
 
 From the "baselines" directory, run 
 
@@ -34,7 +51,7 @@ From the "baselines" directory, run
 
 `./single_year_run_train.sh lstm`
 
-**CNN-RNN and RNN (5-year models):**
+**CNN-RNN and RNN (5-year model baselines):**
 
 From the "cnn-rnn" directory, run
 
@@ -42,6 +59,14 @@ From the "cnn-rnn" directory, run
 
 `./run_train.sh rnn`
 
+## Disclaimer
+
+While GNN-RNN is an improvement over other methods like CNN-RNN, training on the current dataset is still unstable (validation/test losses fluctuate dramatically). This may partially be due to these domain-specific issues in our problem setup (which is mostly the same as the CNN-RNN paper (Khaki et al. 2020)):
+
+1. We lack a good feature describing the overall increase in yields over time due to technological improvements. Right now we use the average nationwide yield for the previous year as a feature, but this is a noisy indicator. Simply fitting a linear regression for each county's yields over time may be better, as shown in Figure 3 of [this paper](https://www.nature.com/articles/s41598-020-80820-1) (Shahhosseini et al. 2021).
+2. We only validate and test on single years. This leads to noisy model selection; the validation loss is dominated by whether the model adequately reproduces the overall nationwide yield level in the validation year; this may not accurately reflect the performance in a different test year.
+
+We are working on addressing these points. But for now we wanted to make sure you are aware of these issues.
 
 ## Paper
 

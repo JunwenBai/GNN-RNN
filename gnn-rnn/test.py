@@ -213,7 +213,7 @@ def test(args):
     g = dgl.from_scipy(sp_adj)
     N = len(adj)
     sampler = dgl.dataloading.MultiLayerNeighborSampler([10, 10])
-    nodeloader = dgl.dataloading.NodeDataLoader(
+    nodeloader = dgl.dataloading.DataLoader(
         g,
         range(N),
         sampler,

@@ -59,7 +59,7 @@ parser.add_argument('-crop_type', '--crop_type', choices=["corn", "cotton", "sor
 parser.add_argument('-num_weather_vars', "--num_weather_vars", default=23, type=int, help='Number of daily weather vars, from PRISM and NLDAS. There were 6 in the CNN-RNN paper, 23 in our new dataset.')
 parser.add_argument('-num_management_vars', "--num_management_vars", default=96, type=int, help='Number of weekly management (crop progress) variables. There are 96 in our new dataset.')
 parser.add_argument('-num_soil_vars', "--num_soil_vars", default=20, type=int, help='Number of depth-dependent soil vars, from gSSURGO. There were 10 in the CNN-RNN paper, 20 in our new dataset.')
-parser.add_argument('-num_extra_vars', "--num_extra_vars", default=5, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
+parser.add_argument('-num_extra_vars', "--num_extra_vars", default=6, type=int, help='Number of extra vars, e.g. gSSURGO variables that are not dependent on depth. There were 5 in the CNN-RNN paper, 6 in our new dataset.')
 parser.add_argument('-soil_depths', "--soil_depths", default=6, type=int, help='Number of depths in the gSSURGO dataset. There were 10 in the CNN-RNN paper, 10 in our new dataset.')
 parser.add_argument('-no_management', "--no_management", default=False, action='store_true', help='Whether to completely ignore management (crop progress/condition) data')
 parser.add_argument('-train_week_start', "--train_week_start", default=52, type=int, help="For each train example, pick a random week between this week and the end (inclusive, 1-based indexing), and mask out data after the random week. Set to args.time_intervals for no masking.")
@@ -232,7 +232,7 @@ with open(results_summary_file, mode='a+') as f:
                              str(args.test_year), test_metrics['rmse'], test_metrics['r2'], test_metrics['corr']])
 
         print("=============== Seed", SEEDS[idx], "=================")
-        print("VAL: \tnrmse: {}\t r2: {}\t corr: {}".format(
+        print("VAL: \trmse: {}\t r2: {}\t corr: {}".format(
             val_metrics['rmse'], val_metrics['r2'], val_metrics['corr'])
         )
         print("TEST: \trmse: {}\t r2: {}\t corr: {}".format(
