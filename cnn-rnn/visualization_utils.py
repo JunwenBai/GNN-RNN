@@ -9,7 +9,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.linear_model import LinearRegression
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-MAP_FILE = "/mnt/beegfs/bulk/mirror/jyf6/datasets/crop_forecast/data/gz_2010_us_050_00_20m/"
+MAP_FILE = "../map/gz_2010_us_050_00_20m/"
 
 def plot_histogram(values, range, column_name, output_dir):
     values = values[~np.isnan(values)]  # Remove NaN

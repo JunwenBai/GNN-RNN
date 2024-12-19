@@ -21,9 +21,9 @@ Older versions might work as well. As of 2023-04-19, the following commands can 
 
 `conda install numpy scipy scikit-learn pandas matplotlib tensorboard`
 
-`conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia`
+`conda install pytorch torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia`
 
-`conda install -c dglteam/label/cu117 dgl`
+`conda install -c dglteam/label/th24_cu124 dgl`
 
 ## Data
 

@@ -113,6 +113,7 @@ def update_metrics(rmse, r2, corr, mode):
 
 def load_subtensor(year_XY, year, in_nodes, out_nodes, device):
     X, Y, counties = year_XY[year]
+    X, Y, counties, in_nodes, out_nodes = X.to(device), Y.to(device), counties.to(device), in_nodes.to(device), out_nodes.to(device)
     batch_inputs = X[in_nodes].float().to(device)
     batch_labels = Y[out_nodes].float().to(device)
     batch_counties = counties[out_nodes].int().to(device)
