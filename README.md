@@ -1,4 +1,7 @@
+# NOTE: This repo is outdated. Please see new repo here: https://github.com/gomes-lab/GNN-RNN
+
 # A GNN-RNN Approach for Harnessing Geospatial and Temporal Information: Application to Crop Yield Prediction
+
 
 <div align=center><img src="figs/gnn_rnn.png" width="85%"></div>
 
@@ -37,7 +40,7 @@ Unfortunately, since we are preparing a journal publication, we currently are on
 
 For all methods, make sure to check the `test_year`, `model`, and `crop_type` parameters. If `train_week` and `validation_week` are set to 52, no masking is performed.
 
-**GNN and GNN-RNN**
+<font color="red">**GNN and GNN-RNN**</font>
 
 From the "gnn" or "gnn-rnn" directory, run `./run_train.sh` to train the respective methods.
 
