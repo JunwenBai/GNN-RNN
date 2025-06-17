@@ -32,7 +32,9 @@ Older versions might work as well. As of 2023-04-19, the following commands can 
 
 Sample crop yield dataset is stored in `data/data_weekly_subset.npz` and the nation-wise adjacency map is stored in `map/`.
 
-Unfortunately, since we are preparing a journal publication, we currently are only able to release a subset of the dataset (Illinois and Iowa), but it should give an idea of the data format.
+UPDATE [2025-06-17]: A version of the complete nationwide weekly dataset is temporarily available here: https://drive.google.com/file/d/18rtB3Ab1VQZZcGr451yf0V9fY4yBSlhP/view?usp=drive_link
+We are working on a permanent hosting solution. To use it, set `--data_dir` to `../data/combined_dataset_weekly.npz` in the script.
+~~Unfortunately, since we are preparing a journal publication, we currently are only able to release a subset of the dataset (Illinois and Iowa), but it should give an idea of the data format.~~
 
 [This sheet](https://docs.google.com/spreadsheets/d/1hhQ8lGzfgLLyl-gKX13NNboJFywIsJoJOKdttx9hKxE/edit?usp=sharing) contains descriptions of the columns in the dataset. Each row coresponds to one county/year pair.
 
